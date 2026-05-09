@@ -35,6 +35,7 @@
 
 #include "zf_common_headfile.h"
 #include "small_driver_uart_control.h"
+#include "euler.h"
 #include "state_estimator.h"
 #include "ipc_protocol.h"
 
@@ -70,6 +71,7 @@ void ipc_cm7_0_callback(uint32 ipc_data)
 int main(void)
 {
     clock_init(SYSTEM_CLOCK_250M); 	// ʱ�����ü�ϵͳ��ʼ��<��ر���>
+    euler_init();                       // IMU 初始化 + 陀螺仪零偏校准（100次静止采样）
     state_estimator_init();             // 状态估计器初始化：清零速度和位置估计值
     debug_init();                       // ���Դ�����Ϣ��ʼ��
     // �˴���д�û����� ���������ʼ�������

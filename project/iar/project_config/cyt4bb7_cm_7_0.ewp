@@ -1148,6 +1148,9 @@
         <file>
             <name>$PROJ_DIR$\..\..\code\servo_kinematics.c</name>
         </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\state_estimator.c</name>
+        </file>
     </group>
     <group>
         <name>doc</name>

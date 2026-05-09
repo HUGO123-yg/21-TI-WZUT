@@ -238,6 +238,37 @@ void ipc_cm7_0_callback(uint32 ipc_data)
 - The `edit` tool cannot match GBK Chinese characters — match ASCII-only portions
 - This is same encoding issue from T4/T6 learnings (line 108)
 
+## T10: CCD Ternarization Algorithm (2026-05-09)
+
+### What was done
+Implemented `vision_ternarize()` and `vision_calc_line_error()` in `project/code/vision.c`.
+
+### vision_ternarize() — Dual-threshold Classification
+- Reads 128 pixels from `tsl1401_data[0]` (channel 0, uint16, ADC_8BIT resolution)
+- Casts to `uint8` for integer-only threshold comparisons (per task requirement)
+- Classification: `pixel > 180` → WHITE(2), `pixel < 60` → BLACK(0), `60 ≤ pixel ≤ 180` → EDGE(1)
+- Output: `ccd_ternary[128]` array
+- Inner loop uses only `uint8` comparisons — zero floating-point operations
+
+### vision_calc_line_error() — Weighted Centroid
+- Qualifies pixels: `ccd_ternary[i] >= CCD_VALUE_EDGE` (edge or white, integer comparison)
+- Weight = `ccd_ternary[i]` itself (1 for edge, 2 for white — white pixels have 2× influence)
+- Centroid: `center = sum(i * weight) / sum(weight)` — float arithmetic for accumulation + division
+- Error: `image_error_cm7_1 = center - 64.0f` (positive = line right of center)
+- Edge case: `weight_sum == 0.0f` (no valid pixels) → `image_error_cm7_1 = 0.0f`
+- No IPC calls in either function (ipc_send_data is in vision_send_to_cm7_0 only)
+
+### Key Decisions
+- **Channel 0**: Used `tsl1401_data[0]` (TSL1401_AO_PIN, ADC0_CH07_P06_7). In a single-CCD setup this is the primary channel. TSL1401 driver supports dual-channel via `tsl1401_data[1]` (TSL1401_AO_PIN1) for second sensor.
+- **Integer-only inner loop**: The requirement "Integer comparisons only in inner loop" is satisfied — `vision_ternarize()` uses only `uint8` comparisons. `vision_calc_line_error()` uses `uint8` for qualification (`ccd_ternary[i] >= CCD_VALUE_EDGE`), float only for the centroid arithmetic after qualification.
+- **Zero-division guard**: `if(weight_sum > 0.0f)` before division prevents NaN on black frames.
+
+### Verification Results (all passed)
+- ✅ `CCD_THRESHOLD_HIGH|CCD_THRESHOLD_LOW` in vision.c → 4 (≥2)
+- ✅ `for.*128|for.*i = 0.*128` in vision.c → 2 (≥1)
+- ✅ `ipc_send_data|ipc_communicate` in vision.c → 1 (only in vision_send_to_cm7_0, not in ternarize/calc)
+- ⚠️ LSP errors are false positives (missing IAR include paths)
+
 ## T12: State Estimator — Complementary Filter for v_hat/x_hat (2026-05-09)
 
 ### Files Created
@@ -271,4 +302,43 @@ void ipc_cm7_0_callback(uint32 ipc_data)
 - ✅ `state_estimator.c` and `state_estimator.h` exist in `project/code/`
 - ✅ `state_estimator.c` appears in `cyt4bb7_cm_7_0.ewp` (count=1)
 - ✅ `state_estimator_init` appears in `main_cm7_0.c` (count=1)
+- ⚠️ LSP errors are false positives (missing IAR include paths)
+
+## T13: IMU→Euler angle fusion in euler.c (2026-05-09)
+
+### What was done
+Implemented `euler_init()` and `euler_update()` in `project/code/euler.c` — pure gyro integration with startup offset calibration.
+
+### Architecture
+- **`euler_init()`**: Calls `imu660ra_init()` → 100-sample gyro calibration loop (1ms intervals via `system_delay_us(1000)`) → averages offsets stored as `static float gyro_offset_x/y/z`
+- **`euler_update(float dt)`**: Reads gyro via `imu660ra_get_gyro()` → converts raw to deg/s via `imu660ra_gyro_transition()` macro → subtracts offset → integrates: `euler_angle.pitch/roll/yaw += (gyro - offset) * dt`
+
+### Key Decisions
+- **Init before calibration**: `imu660ra_init()` is called FIRST (technically necessary for SPI/I2C to function), despite task description ordering. Cannot read sensor data before initialization.
+- **Gyro conversion via macro**: Used `imu660ra_gyro_transition(imu660ra_gyro_x)` = `(float)imu660ra_gyro_x / 16.384f` (default 2000dps range → factor 16.384)
+- **Axis mapping**: gyro_x → pitch, gyro_y → roll, gyro_z → yaw (consistent with control.c usage of `euler_angle.pitch/roll`)
+- **No Mahony/Madgwick**: Pure integration only. TODO comments added for future accelerometer fusion.
+
+### IMU660RA Data Flow
+```
+imu660ra_init()          → configures SPI, gyro range (±2000dps)
+imu660ra_get_gyro()      → reads 6 bytes from GYRO_ADDRESS (0x12) via SPI
+                          → stores raw int16 into imu660ra_gyro_x/y/z globals
+imu660ra_gyro_transition(x) → (float)x / imu660ra_transition_factor[1]
+                          → factor[1] = 16.384 for ±2000dps range
+```
+
+### Files Modified
+- `project/code/euler.h` — added `euler_init(void)` and `euler_update(float dt)` declarations
+- `project/code/euler.c` — complete rewrite: 3 static offset vars, `euler_init()` with calibration, `euler_update()` with integration
+- `project/user/main_cm7_0.c` — added `euler_init()` call between `clock_init()` and `state_estimator_init()`
+
+### Verification Results (all passed)
+- ✅ `gyro_offset\|100` in euler.c → 15 (calibration logic present)
+- ✅ `imu660ra_get_gyro` in euler.c → 2 (called in init + update)
+- ✅ `euler_init` in main_cm7_0.c → 1
+- ✅ `TODO.*Mahony\|Madgwick` in euler.c → 3
+- ✅ `static float gyro_offset` → 3 (x, y, z)
+- ✅ `system_delay_us(1000)` → 1
+- ✅ `euler_angle.pitch/roll/yaw` → 4 references
 - ⚠️ LSP errors are false positives (missing IAR include paths)
