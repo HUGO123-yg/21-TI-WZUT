@@ -341,14 +341,14 @@ Wave 1 (唯一任务):
 
 > 4 review agents run in PARALLEL. ALL must APPROVE.
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+  - [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. Verify:
   - Must Have: 27 extern declarations present, 10 function prototypes present, jump_control_struct typedef present
   - Must NOT Have: No pid_t definition, no euler_angle extern, no foc_set_duty extern, no get_timer extern, no servo_control_table extern
   - Evidence files exist in `.sisyphus/evidence/`
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [1/1] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+  - [x] F2. **Code Quality Review** — `unspecified-high`
   Run IAR build on CM7_0 project. Review control.h for:
   - Include guard correctness (`#ifndef _control_h_` ... `#endif`)
   - No `#pragma` warning suppression without documented reason
@@ -357,7 +357,7 @@ Wave 1 (唯一任务):
   - Static `const float LQR_K[8]` properly declared as `extern const`
   Output: `Build [PASS/FAIL] | Lint [PASS/FAIL] | Style [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+  - [x] F3. **Real Manual QA** — `unspecified-high`
   Execute all QA scenarios from Task 1:
   - Scenario 1: double-include test
   - Scenario 2: symbol coverage audit
@@ -365,7 +365,7 @@ Wave 1 (唯一任务):
   Save evidence to `.sisyphus/evidence/final-qa/`.
   Output: `Scenarios [3/3 pass] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+  - [x] F4. **Scope Fidelity Check** — `deep`
   Verify:
   - control.h contains exactly the symbols declared in the plan (no missing, no extra)
   - No control.c modifications made (git diff shows only control.h added)

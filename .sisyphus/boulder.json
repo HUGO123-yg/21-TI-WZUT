@@ -9,7 +9,16 @@
     "ses_1f3935effffeMhFfI7WEqgdo8h",
     "ses_1f392d570ffe8uwnFv5wqCq6ai",
     "ses_1f3923356ffetGWSJ1dXvmL31p",
-    "ses_1f391d16bffe5CjLc4HxpotiHM"
+    "ses_1f391d16bffe5CjLc4HxpotiHM",
+    "ses_1f38ca092ffdAVM51KyN13kfph",
+    "ses_1f38c4c6dffdoNpmaW5oDZMlN1",
+    "ses_1f38bea22ffeqZQByVV0zUoBaB",
+    "ses_1f38b7de9ffeIvV0KyJ2jDUn8i",
+    "ses_1f38b007fffeYi52FS5xo6om42",
+    "ses_1f383ad8fffejf0zl12rLpAlB6",
+    "ses_1f383587bffdCM4TUZVILU3R83",
+    "ses_1f378e7ceffeCZm7YOIF2Bincm",
+    "ses_1f3788ab9ffe5yFxvNzxFn4e0f"
   ],
   "plan_name": "multicore-motion-vision",
   "agent": "atlas",
@@ -21,7 +30,16 @@
     "ses_1f3935effffeMhFfI7WEqgdo8h": "appended",
     "ses_1f392d570ffe8uwnFv5wqCq6ai": "appended",
     "ses_1f3923356ffetGWSJ1dXvmL31p": "appended",
-    "ses_1f391d16bffe5CjLc4HxpotiHM": "appended"
+    "ses_1f391d16bffe5CjLc4HxpotiHM": "appended",
+    "ses_1f38ca092ffdAVM51KyN13kfph": "appended",
+    "ses_1f38c4c6dffdoNpmaW5oDZMlN1": "appended",
+    "ses_1f38bea22ffeqZQByVV0zUoBaB": "appended",
+    "ses_1f38b7de9ffeIvV0KyJ2jDUn8i": "appended",
+    "ses_1f38b007fffeYi52FS5xo6om42": "appended",
+    "ses_1f383ad8fffejf0zl12rLpAlB6": "appended",
+    "ses_1f383587bffdCM4TUZVILU3R83": "appended",
+    "ses_1f378e7ceffeCZm7YOIF2Bincm": "appended",
+    "ses_1f3788ab9ffe5yFxvNzxFn4e0f": "appended"
   },
   "task_sessions": {
     "todo:1": {
@@ -32,6 +50,51 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-05-09T11:10:13.962Z"
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "**Create CM7_1 vision application skeleton + add to CM7_1 IAR project**",
+      "session_id": "ses_1f391d16bffe5CjLc4HxpotiHM",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-05-09T11:14:46.705Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "**IPC init on CM7_0 — register callback that updates volatile image_error**",
+      "session_id": "ses_1f38c4c6dffdoNpmaW5oDZMlN1",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-05-09T11:20:41.787Z"
+    },
+    "todo:10": {
+      "task_key": "todo:10",
+      "task_label": "10",
+      "task_title": "**Implement CCD ternarization algorithm in vision.c**",
+      "session_id": "ses_1f38b007fffeYi52FS5xo6om42",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-05-09T11:24:27.519Z"
+    },
+    "todo:13": {
+      "task_key": "todo:13",
+      "task_label": "13",
+      "task_title": "**Wire 1kHz PIT-driven motion control ISR on CM7_0**",
+      "session_id": "ses_1f383ad8fffejf0zl12rLpAlB6",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-05-09T11:36:22.811Z"
+    },
+    "todo:15": {
+      "task_key": "todo:15",
+      "task_label": "15",
+      "task_title": "**Integrate IPC image_error into control pipeline (volatile read)**",
+      "session_id": "ses_1f378e7ceffeCZm7YOIF2Bincm",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-05-09T11:43:00.860Z"
     }
   }
 }

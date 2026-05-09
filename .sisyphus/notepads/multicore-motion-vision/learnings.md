@@ -466,3 +466,31 @@ Note: `control.h` transitively includes euler.h, foc.h, pid.h, small_driver_uart
 ### LSP Diagnostics Note
 All LSP errors in cm7_0_isr.c are false positives — LSP does not have IAR include paths. Same pattern as T4/T8/T9/T10/T12/T13/T16 (14 prior learnings entries documenting this).
 
+
+## T17: Fix turn_control() — Remove shadowing parameter (2026-05-09)
+
+### What was done
+Removed `float image_error` parameter from `turn_control()` — the parameter shadowed the global `volatile float image_error` (written by IPC callback). Now uses the global directly. Added zero-load fallback for startup/environmental safety.
+
+### Changes
+- **control.c line 2**: Added `#include <math.h>` for `fabsf()`
+- **control.c lines 90-107**: Rewrote function — signature `float turn_control(void)`, zero-load check `fabsf(image_error) < 0.001f → return 0.0f`, then `return turn_gyro.out`
+- **control.h line 113**: Updated prototype `float turn_control(void);`
+
+### Pattern: Zero-load fallback
+When `image_error` is near zero (< 0.001 pixel), vision data is unreliable (startup, glare, line loss). Returning 0.0f means "straight line" — the default safe behavior for a balancing robot at rest.
+
+### GBK Encoding Issue Encountered
+When using the `edit` tool on `control.c`, the original Chinese comment block was NOT replaced — the GBK-encoded Chinese characters didn't match the tool's expected encoding. Result: new comment block inserted but old GBK comment + old function definition remained as duplicates.
+
+**Fix:** Used Python raw byte manipulation (`open('rb')`, split on `b'\n'`, slice lines array) to surgically remove the 17-line duplicate (lines 108-124: stray `}`, old GBK comment, old `float turn_control(float image_error)` definition).
+
+**Lesson:** For files with GBK Chinese comments, always use Python byte-level operations instead of the `edit` tool for operations involving Chinese text. This same issue was documented in T4 learnings (line 108 of this file).
+
+### Verification (all passed)
+- ✅ `grep "float turn_control" control.c` → 1 match (`float turn_control(void)`)
+- ✅ `grep "float turn_control" control.h` → 1 match (`float turn_control(void);`)
+- ✅ `grep -c "ipc_send_data\|ipc_communicate" control.c` → 0
+- ✅ `grep "#include.*math" control.c` → 1 (`#include <math.h>`)
+- ✅ `fabsf` in control.c → 1
+- ⚠️ LSP errors are false positives (missing IAR include paths)
