@@ -1,31 +1,7 @@
 {
-  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/companion-modules.md",
-  "started_at": "2026-05-09T04:28:44.427Z",
-  "session_ids": [
-    "ses_1f583e644ffeMV7XDNZVW6xego"
-  ],
-  "session_origins": {
-    "ses_1f583e644ffeMV7XDNZVW6xego": "direct"
-  },
-  "plan_name": "companion-modules",
-  "agent": "atlas",
-  "task_sessions": {
-    "final-wave:f1": {
-      "task_key": "final-wave:f1",
-      "task_label": "F1",
-      "task_title": "**Plan Compliance Audit** — `oracle`",
-      "session_id": "ses_1f4f05454ffeXTjaaZLvqh1Kxv",
-      "agent": "oracle",
-      "updated_at": "2026-05-09T04:51:32.195Z"
-    },
-    "final-wave:f2": {
-      "task_key": "final-wave:f2",
-      "task_label": "F2",
-      "task_title": "**Code Quality Review** — `unspecified-high`",
-      "session_id": "ses_1f454c798ffeViVMVlGwrH9LMO",
-      "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-05-09T07:42:06.356Z"
-    }
-  }
+  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/control-header.md",
+  "started_at": "2026-05-09T10:51:33.525Z",
+  "session_ids": ["ses_1f40e2e05ffesG2xcPhXRTq8Qo"],
+  "plan_name": "control-header",
+  "agent": "atlas"
 }

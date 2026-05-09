@@ -1,0 +1,8 @@
+Symbol Coverage Audit: PASS
+- extern declarations: 36 (plan requires >=27)
+- Function prototypes: 10 (all 10 from control.c present)
+- SERVO macros: 8 (SERVO_1-4 + SERVO1_MID-4)
+- TOM0 macros: 5 (CH0-CH4, all value=0 with TODO)
+- Dead zone macros: 4 (L_correct, L_negative, R_correct, R_negative, all value=0 with TODO)
+- clip2/ABS/DEG_TO_RAD: 3 macros present
+- jump_control_struct: typedef + extern both present

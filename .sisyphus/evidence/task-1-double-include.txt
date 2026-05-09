@@ -1,0 +1,6 @@
+Double-include test: PASS
+Include guard structure verified:
+- #ifndef _control_h_ : present (line 1)
+- #define _control_h_  : present (line 2)
+- #endif               : present (line 121)
+Preprocessor successfully processes control.h (412 symbols detected).

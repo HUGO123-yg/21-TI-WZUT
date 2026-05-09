@@ -23,7 +23,32 @@ typedef struct
     const char *name;       // 阶段名称
 } jump_control_struct;
 
-// [TODO: extern declarations and function prototypes will be added after companion modules are created]
+//===== 舵机通道定义（与 servo.h 中的 STEER_1~4 对应） =====
+
+#define SERVO_1    (STEER_1_PWM)     // 左腿上舵机 → TCPWM_CH10_P05_0
+#define SERVO_2    (STEER_2_PWM)     // 左腿下舵机 → TCPWM_CH10_P05_1
+#define SERVO_3    (STEER_3_PWM)     // 右腿上舵机 → TCPWM_CH10_P05_2
+#define SERVO_4    (STEER_4_PWM)     // 右腿下舵机 → TCPWM_CH10_P05_3
+
+#define SERVO1_MID (STEER_1_CENTER)  // 左腿上舵机中位值 = 1000
+#define SERVO2_MID (STEER_2_CENTER)  // 左腿下舵机中位值 = 1000
+#define SERVO3_MID (STEER_3_CENTER)  // 右腿上舵机中位值 = 1000
+#define SERVO4_MID (STEER_4_CENTER)  // 右腿下舵机中位值 = 1000
+
+//===== 定时器通道定义 [TODO: 确认 TOM0 实例对应的实际通道号] =====
+
+#define TOM0_CH0    (0)   // 腿高控制定时器
+#define TOM0_CH1    (0)   // 速度环定时器
+#define TOM0_CH2    (0)   // 角度环定时器
+#define TOM0_CH3    (0)   // 角速度环定时器
+#define TOM0_CH4    (0)   // 转向环定时器
+
+//===== 死区校准参数 [TODO: 实测标定] =====
+
+#define L_dead_zone_correct    (0)     // 左轮正转死区补偿
+#define L_dead_zone_negative   (0)     // 左轮反转死区补偿
+#define R_dead_zone_correct    (0)     // 右轮正转死区补偿
+#define R_dead_zone_negative   (0)     // 右轮反转死区补偿
 
 //===== 配套模块头文件引用 =====
 #include "pid.h"
@@ -31,6 +56,7 @@ typedef struct
 #include "foc.h"
 #include "timer_control.h"
 #include "servo_kinematics.h"
+#include "small_driver_uart_control.h"
 
 //===== LQR 控制器常量 =====
 extern const float LQR_K[8];
@@ -74,9 +100,11 @@ extern float KD;
 extern float KDD;
 
 //===== 未来模块引用（待实现） =====
-extern float image_error;   // [TODO: 视觉模块]
-extern float v_hat;         // [TODO: 状态估计器]
-extern float x_hat;         // [TODO: 状态估计器]
+extern float image_error;                               // [TODO: 视觉模块]
+extern float mid_point;                                 // [TODO: 视觉模块]
+extern float v_hat;                                     // [TODO: 状态估计器]
+extern float x_hat;                                     // [TODO: 状态估计器]
+extern small_device_value_struct motor_value;           // [TODO: 需在 motor_control.c 中定义]
 
 //===== 函数原型 =====
 void pid_ctrl_Init(void);
