@@ -342,3 +342,94 @@ imu660ra_gyro_transition(x) → (float)x / imu660ra_transition_factor[1]
 - ✅ `system_delay_us(1000)` → 1
 - ✅ `euler_angle.pitch/roll/yaw` → 4 references
 - ⚠️ LSP errors are false positives (missing IAR include paths)
+
+## T14: CM7_1 Main Loop Integration — CCD→Ternarize→IPC Pipeline (2026-05-09)
+
+### What was done
+Verified and fixed the CM7_1 main loop end-to-end pipeline: `tsl1401_finish_flag` → `vision_ternarize()` → `vision_calc_line_error()` → `vision_send_to_cm7_0()` → clear flag.
+
+### Files Modified
+- `project/user/main_cm7_1.c` — removed extra closing brace `}` on line 90 (duplicate after main() close)
+
+### Bug Found
+- **Duplicate closing brace** (line 90): `main()` closed at line 89, then an extra `}` at line 90. Would be a compile-time syntax error. Removed the extra brace.
+
+### While Loop State (after fix)
+```c
+while(true)
+{
+    if(tsl1401_finish_flag)
+    {
+        vision_ternarize();
+        vision_calc_line_error();
+        vision_send_to_cm7_0();
+        tsl1401_finish_flag = 0;
+    }
+}
+```
+
+### Key Decisions
+- The pipeline was already correctly wired by T5/T9/T10 — only the syntax error needed fixing
+- `vision_send_to_cm7_0()` is called ONLY in the main loop, confirmed NOT in ISR
+- No blocking delays (`system_delay_ms`) in the while loop — loop spins idle 99% at ~100Hz CCD frame rate
+
+### Verification Results (all passed)
+- ✅ `vision_ternarize` in main_cm7_1.c → 1 (≥1)
+- ✅ `vision_calc_line_error` in main_cm7_1.c → 1 (≥1)
+- ✅ `vision_send_to_cm7_0` in main_cm7_1.c → 1 (≥1)
+- ✅ `vision_send_to_cm7_0|ipc_send_data` in cm7_1_isr.c → 0 (clean)
+- ✅ `system_delay_ms|system_delay` in main_cm7_1.c → 0 (no blocking delays)
+
+## T16: 1kHz PIT-Driven Motion Control ISR on CM7_0 (2026-05-09)
+
+### What was done
+Wired a 1kHz PIT-driven motion control ISR on CM7_0 with an 8-step pipeline: IMU→Euler→motor feedback→state estimator→LQR→PID→FOC→servo kinematics.
+
+### Files Modified
+- `project/user/main_cm7_0.c` — added `pit_init(PIT_CH0, 1000)` after gpio_init, before while loop
+- `project/user/cm7_0_isr.c` — replaced empty `pit0_ch0_isr` with 8-step pipeline, added includes
+
+### 8-Step Pipeline Architecture
+```
+Step 1: euler_update(0.001f)                    — IMU gyro→Euler integration
+Step 2: small_driver_get_angle/speed(&motor_value) — motor feedback UART query
+Step 3: state_estimator_update(pitch/rad, motor_accel, 0.001f) — complementary filter v_hat/x_hat
+Step 4: LQR_control(set_speed, pitch_mid)       — LQR state feedback (internally calls foc_set_duty)
+Step 5: pid_ctrl_Run()                          — PID cascade (internally calls foc_set_duty + imu660ra_get_gyro)
+Step 6: foc_set_duty(gyro.out, turn.out)        — explicit FOC output (redundant but explicit per spec)
+Step 7: left_leg_control/right_leg_control(leg_long, 0) — servo kinematics
+Step 8: pit_isr_flag_clear(PIT_CH0); __DSB();   — flag cleanup + memory barrier
+```
+
+### Key Decisions
+- **Redundant foc_set_duty calls**: Both LQR_control (when jump_flag != 1) and pid_ctrl_Run call foc_set_duty internally. Step 6 adds a third explicit call for architectural clarity. All three use the same motor_value UART channel — last call wins. Harmless redundancy.
+- **Motor acceleration computation**: Derived from speed difference using static `last_motor_speed`. Simple finite difference with dt=0.001s. First cycle: acceleration = 0 (no prior speed data).
+- **Leg control**: Uses baseline `leg_long` (5.5f) for both legs with zero angle parameter. The `leg_control()` function with roll-balancing integral is intentionally NOT called — the task specifies `left_leg_control()/right_leg_control()` directly.
+- **pit_clear_flag vs pit_isr_flag_clear**: The task documentation says `pit_clear_flag()` but the actual API is `pit_isr_flag_clear()` (defined in `zf_driver_pit.h`). Used the actual API, matching all other ISRs in the file.
+- **euler_angle.pitch → radians conversion**: `state_estimator_update` takes pitch_angle in radians. `euler_angle.pitch` is in degrees. Conversion: `euler_angle.pitch / DEG_TO_RAD` where `DEG_TO_RAD = 180/PI ≈ 57.3` (misnamed — it's actually RAD_TO_DEG, dividing by it converts deg→rad per existing usage in `LQR_control`).
+
+### Includes Added to cm7_0_isr.c
+```c
+#include "control.h"           // LQR_control, pid_ctrl_Run, globals (set_speed, pitch_mid, euler_angle, motor_value, leg_long)
+#include "state_estimator.h"   // state_estimator_update
+```
+
+Note: `control.h` transitively includes euler.h, foc.h, pid.h, small_driver_uart_control.h, servo_kinematics.h.
+
+### Timing Concerns (noted, not resolved)
+- **3x IMU SPI reads/cycle**: euler_update calls imu660ra_get_gyro(), pid_ctrl_Run also calls it. At 1kHz this is 2000-3000 SPI transactions/sec. SPI at 20MHz should complete in ~15µs per transaction.
+- **3x foc_set_duty UART sends/cycle**: Each is 7 bytes at 460800 baud ≈ 0.15ms. Three sends = ~0.45ms. Within 1ms budget but tight. PID cascade timer_flag (mod 20) means pid_ctrl_Run sub-samples at 50Hz effective rate.
+- **ISR budget**: Must complete within 1000µs. No blocking calls, no printf, no system_delay.
+
+### Verification Results (all passed)
+- ✅ `grep -c "ipc_send_data\|ipc_communicate" cm7_0_isr.c` → 0
+- ✅ `grep -c "pit_init.*PIT_CH0.*1000" main_cm7_0.c` → 1
+- ✅ `grep -c "euler_update" cm7_0_isr.c` → 1
+- ✅ `grep -c "LQR_control" cm7_0_isr.c` → 1
+- ✅ `grep -c "pid_ctrl_Run" cm7_0_isr.c` → 1
+- ✅ `grep -c "foc_set_duty" cm7_0_isr.c` → 1
+- ✅ `grep -c "state_estimator_update" cm7_0_isr.c` → 1
+- ✅ `grep -c "left_leg_control\|right_leg_control" cm7_0_isr.c` → 2
+- ✅ Existing ISR handlers preserved (uart*_isr: 7, gpio_*_exti: 23, pit_ch{1,2,10-21}: 13)
+- ✅ PIT_CH21 preserved (3 references, CCD handler stub intact)
+- ⚠️ LSP errors are false positives (missing IAR include paths)

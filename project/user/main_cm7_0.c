@@ -79,6 +79,7 @@ int main(void)
     ipc_communicate_init(IPC_PORT_1, ipc_cm7_0_callback);   // CM7_0 IPC init: receive vision data from CM7_1
     gpio_init(LED1, GPO, GPIO_HIGH, GPO_PUSH_PULL);   
 
+    pit_init(PIT_CH0, 1000);                // 1kHz motion control ISR (1000us period)
 
     // �˴���д�û����� ���������ʼ�������
     while(true)
