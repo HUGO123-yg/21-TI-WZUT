@@ -171,3 +171,104 @@ void pit0_ch21_isr()
 - ✅ `ipc_protocol.h` included from control.h → 1
 - ✅ `ipc_protocol.h` included from vision.h → 1 (pre-existing from T4)
 - ⚠️ LSP errors are false positives (missing IAR include paths)
+
+## T8: CM7_1 IPC Sender — vision_send_to_cm7_0() (2026-05-09)
+
+### Files Modified
+- `project/user/main_cm7_1.c` — added `#include "zf_driver_ipc.h"`, callback function, IPC init call
+- `project/code/vision.c` — added `#include "zf_driver_ipc.h"`, implemented `vision_send_to_cm7_0()`
+
+### Changes
+**main_cm7_1.c:**
+- `#include "zf_driver_ipc.h"` added after `vision.h`
+- `ipc_cm7_1_callback(uint32 ipc_data)` — minimal callback (empty body, `(void)ipc_data;`)
+- `ipc_communicate_init(IPC_PORT_2, ipc_cm7_1_callback)` — called after `debug_info_init()`, before `vision_init()`
+
+**vision.c:**
+- `#include "zf_driver_ipc.h"` added
+- `vision_send_to_cm7_0()` calls `ipc_send_data(IPC_VISION_PACK(image_error_cm7_1, 255))` — quality=255 (best)
+
+### Key Decisions
+- Callback is minimal (empty) — CM7_1 is sender, only receives acks; no action needed
+- `(void)ipc_data;` suppresses unused parameter warning in IAR
+- `ipc_protocol.h` already included via `vision.h` (T9), no duplicate include needed
+- `image_error_cm7_1` is `float` — cast to `int16` inside `IPC_VISION_PACK` macro before shifting
+
+### Verification Results (all passed)
+- ✅ `ipc_communicate_init.*IPC_PORT_2` in main_cm7_1.c → 1
+- ✅ `IPC_VISION_PACK` in vision.c → 1
+- ✅ `ipc_send_data` in cm7_1_isr.c → 0 (clean)
+- ✅ `ipc_send_data` in vision.c → 1
+- ✅ `ipc_cm7_1_callback` in main_cm7_1.c → 3 (comment, definition, init call)
+
+## T8: CM7_0 IPC Initialization with Vision Callback (2026-05-09)
+
+### What was done
+Added IPC initialization to CM7_0 with a receive callback that unpacks vision data from CM7_1.
+
+### Files modified
+- `project/user/main_cm7_0.c` — added `#include "ipc_protocol.h"`, callback function `ipc_cm7_0_callback()`, and `ipc_communicate_init(IPC_PORT_1, ipc_cm7_0_callback)` call after clock init
+
+### Key findings
+- **NO `ipc_received_data` global exists in `zf_driver_ipc.c`.** The task description incorrectly referenced this. Data flows via the callback parameter `uint32 ipc_data`, which `zf_driver_ipc.c` extracts from `communicate_data_t` and passes to `user_callback(data->data)`.
+- `zf_driver_ipc.h` is already included via `zf_common_headfile.h` — no separate include needed for IPC types.
+- Callback runs in IPC interrupt context (via `ipc_received_callback` ISR → `user_callback`), NOT main loop context. Must be fast and non-blocking.
+- Quality check: `IPC_VISION_UNPACK_QUALITY(ipc_data) > 0` ensures we only update `image_error` when CCD has a valid line. Invalid frames (quality=0) leave `image_error` at last known value — avoids injecting 0.0f when camera momentarily loses line.
+
+### Callback design
+```c
+void ipc_cm7_0_callback(uint32 ipc_data)
+{
+    uint8 quality = IPC_VISION_UNPACK_QUALITY(ipc_data);
+    if (quality > 0)
+    {
+        image_error = IPC_VISION_UNPACK_ERROR(ipc_data);
+    }
+}
+```
+
+### Verification (all passed)
+- ✅ `ipc_communicate_init.*IPC_PORT_1` in main_cm7_0.c → 2 (2x in code + comment, ≥1)
+- ✅ `IPC_VISION_UNPACK_ERROR` in main_cm7_0.c → 1 (≥1)
+- ✅ `ipc_send_data|ipc_communicate` in cm7_0_isr.c → 0
+- ⚠️ LSP errors are false positives (missing IAR include paths)
+
+### GBK encoding reminder
+- Chinese comments in `main_cm7_0.c` use GBK/GB2312 encoding
+- The `edit` tool cannot match GBK Chinese characters — match ASCII-only portions
+- This is same encoding issue from T4/T6 learnings (line 108)
+
+## T12: State Estimator — Complementary Filter for v_hat/x_hat (2026-05-09)
+
+### Files Created
+- `project/code/state_estimator.h` — include guard `_state_estimator_h_`, declares `state_estimator_init()` and `state_estimator_update()`
+- `project/code/state_estimator.c` — complementary filter implementation using control.h globals `v_hat`, `x_hat`
+
+### Files Modified
+- `project/iar/project_config/cyt4bb7_cm_7_0.ewp` — added `state_estimator.c` to code group (between `servo_kinematics.c` and `</group>`)
+- `project/user/main_cm7_0.c` — added `#include "state_estimator.h"`, called `state_estimator_init()` after `clock_init()`
+
+### Complementary Filter Design
+- **Model prediction:** `v_pred = v_hat + motor_accel * dt`
+- **Observation correction:** `v_correction = pitch_angle * 0.05f` [TODO: calibrate gain]
+- **Complementary fusion:** `v_hat = 0.95f * v_pred + 0.05f * v_correction` [TODO: calibrate weights]
+- **Position integration:** `x_hat += v_hat * dt`
+- All parameters (pitch_angle, motor_accel, dt) passed as function arguments — no sensor reads inside update function
+
+### Key Decisions
+- `v_hat` and `x_hat` are `volatile float` in `control.h` — accessed directly (not via getters)
+- 0.05 gain and 0.95/0.05 fusion weights are initial guesses pending hardware calibration
+- Position is open-loop integrated from velocity (no position sensor correction)
+
+### Conventions Applied
+- `//=====...=====` section separators
+- `// [TODO: 标定滤波器增益]` and `// [TODO: 标定融合权重]` markers
+- `//-------------------------------------------------------------------------------------------------------------------` function doc blocks with Chinese headers
+- `_state_estimator_h_` lowercase include guard matching `_pid_h_` pattern
+- `state_estimator.c` includes `control.h` for `v_hat`/`x_hat` access
+
+### Verification Results (all passed)
+- ✅ `state_estimator.c` and `state_estimator.h` exist in `project/code/`
+- ✅ `state_estimator.c` appears in `cyt4bb7_cm_7_0.ewp` (count=1)
+- ✅ `state_estimator_init` appears in `main_cm7_0.c` (count=1)
+- ⚠️ LSP errors are false positives (missing IAR include paths)
