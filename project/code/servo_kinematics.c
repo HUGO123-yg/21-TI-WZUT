@@ -5,6 +5,7 @@
 
 #include "servo_kinematics.h"
 #include "control.h"    // DEG_TO_RAD 宏
+#include <stdio.h>
 
 //----* 机械中位偏移量 *-----
 // 由视觉模块运行时写入，初值置零
@@ -32,8 +33,21 @@ void servo_angle_to_pwm(float angle_deg, int16 *out_pwm)
     *out_pwm = (int16)pwm_f;
 }
 
+static uint8 param_warned = 0;
+
 void servo_control_table(float p, float angle, int16 *out_ph1, int16 *out_ph4)
 {
+    // [TODO: Replace with real kinematics parameters from MATLAB simulation]
+    if (L1_MM == 0.0f || L2_MM == 0.0f || D_MM == 0.0f)
+    {
+        if (!param_warned)
+        {
+            param_warned = 1;
+            printf("[servo_kinematics] WARNING: L1_MM/L2_MM/D_MM are zero (placeholder). Skipping kinematics calculation.\n");
+        }
+        return;
+    }
+
     // [TODO: 四杆机构逆运动学解算]
     // 输入: p = 腿端伸缩量(mm), angle = 腿端偏转角(deg)
     // 输出: out_ph1 = 下舵机 PWM 偏移, out_ph4 = 上舵机 PWM 偏移

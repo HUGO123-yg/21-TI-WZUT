@@ -1,7 +1,37 @@
 {
-  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/control-header.md",
-  "started_at": "2026-05-09T10:51:33.525Z",
-  "session_ids": ["ses_1f40e2e05ffesG2xcPhXRTq8Qo"],
-  "plan_name": "control-header",
-  "agent": "atlas"
+  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/multicore-motion-vision.md",
+  "started_at": "2026-05-09T10:55:00.000Z",
+  "session_ids": [
+    "ses_1f40e2e05ffesG2xcPhXRTq8Qo",
+    "ses_1f3943015ffeyvgTby6GOgG39Z",
+    "ses_1f393f1b0ffdVkvCvSzGOMxTy9",
+    "ses_1f393a6a5ffdJW0565dtMKwNQ6",
+    "ses_1f3935effffeMhFfI7WEqgdo8h",
+    "ses_1f392d570ffe8uwnFv5wqCq6ai",
+    "ses_1f3923356ffetGWSJ1dXvmL31p",
+    "ses_1f391d16bffe5CjLc4HxpotiHM"
+  ],
+  "plan_name": "multicore-motion-vision",
+  "agent": "atlas",
+  "session_origins": {
+    "ses_1f40e2e05ffesG2xcPhXRTq8Qo": "direct",
+    "ses_1f3943015ffeyvgTby6GOgG39Z": "appended",
+    "ses_1f393f1b0ffdVkvCvSzGOMxTy9": "appended",
+    "ses_1f393a6a5ffdJW0565dtMKwNQ6": "appended",
+    "ses_1f3935effffeMhFfI7WEqgdo8h": "appended",
+    "ses_1f392d570ffe8uwnFv5wqCq6ai": "appended",
+    "ses_1f3923356ffetGWSJ1dXvmL31p": "appended",
+    "ses_1f391d16bffe5CjLc4HxpotiHM": "appended"
+  },
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "**Add div-by-zero safety guard to servo_kinematics.c**",
+      "session_id": "ses_1f393a6a5ffdJW0565dtMKwNQ6",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-05-09T11:10:13.962Z"
+    }
+  }
 }

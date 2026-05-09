@@ -1130,6 +1130,24 @@
         <file>
             <name>$PROJ_DIR$\..\..\code\本文件夹作用.txt</name>
         </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\control.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\foc.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\euler.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\pid.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\timer_control.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\servo_kinematics.c</name>
+        </file>
     </group>
     <group>
         <name>doc</name>

@@ -128,8 +128,9 @@ void pit0_ch20_isr()                    // ¶¨Ê±Æ÷Í¨µÀ 20 ÖÜÆÚÖÐ¶Ï·þÎñº¯Êý
 
 void pit0_ch21_isr()                    // ¶¨Ê±Æ÷Í¨µÀ 21 ÖÜÆÚÖÐ¶Ï·þÎñº¯Êý      
 {
+    // PIT_CH21 owned by CM7_1 for CCD â€” handler removed from CM7_0
     pit_isr_flag_clear(PIT_CH21);
-    tsl1401_collect_pit_handler();
+    __DSB();
 }
 // **************************** PITÖÐ¶Ïº¯Êý ****************************
 
