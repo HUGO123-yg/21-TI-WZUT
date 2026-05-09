@@ -69,6 +69,26 @@ Added 6 unlinked .c source files to the CM7_0 IAR project (.ewp):
 - All 6 files confirmed on disk at `project/code/`
 - CM7_1 .ewp confirmed untouched (0 matches for any of the 6 files)
 
+## Wave 1: Add volatile to cross-context shared variables (2026-05-09)
+
+### What was done
+Added `volatile` qualifier to `image_error`, `v_hat`, `x_hat` in `control.h` (extern) and `control.c` (definition).
+
+### Pattern: Single-producer-single-consumer with volatile
+- Variables written by IPC callback (background context), read by 1kHz ISR (interrupt context)
+- `volatile float` read is atomic on Cortex-M7 (32-bit aligned) — no lock needed
+- `extern volatile float x;` in header, `volatile float x = 0.0f;` in exactly ONE .c file
+
+### Files changed
+- `project/code/control.h:103-106` — added `volatile` to extern declarations
+- `project/code/control.c:4-6` — added definitions with `volatile` and 0.0f init
+
+### Verification
+- `grep -c "volatile.*image_error" control.h` → 1 ✓
+- `grep -c "volatile.*v_hat" control.h` → 1 ✓
+- `grep -c "volatile.*x_hat" control.h` → 1 ✓
+- Each variable defined in exactly ONE .c file (control.c only) ✓
+
 ## Wave 1: Clean cm7_0_isr.c — Remove CCD handler
 
 **Date:** 2026-05-09
@@ -91,3 +111,63 @@ void pit0_ch21_isr()
 - `grep -c "tsl1401_collect_pit_handler" cm7_0_isr.c` → 0 ✓
 - `grep -c "pit0_ch21_isr" cm7_0_isr.c` → 1 ✓
 - `grep -c "tsl1401_collect_pit_handler" cm7_1_isr.c` → 1 (untouched) ✓
+
+## T4: CM7_1 Vision Skeleton (2026-05-09)
+
+### Files Created
+- `project/code/vision.h` — include guard `_vision_h_`, macros (CCD_THRESHOLD_HIGH/LOW, CCD_VALUE_BLACK/EDGE/WHITE), extern variables, function declarations
+- `project/code/vision.c` — stub implementations: `vision_init()` calls `tsl1401_init()`, other three functions are TODO stubs
+
+### Files Modified
+- `project/iar/project_config/cyt4bb7_cm_7_1.ewp` — added `vision.c` to code group
+- `project/user/main_cm7_1.c` — added `#include "vision.h"`, `vision_init()` call after `debug_info_init()`, main loop with `if(tsl1401_finish_flag)` processing block
+- `project/user/cm7_1_isr.c` — added `tsl1401_finish_flag = 1;` in `pit0_ch21_isr` after `tsl1401_collect_pit_handler()`
+
+### Key Decisions
+- `vuint8` = `volatile uint8` per zf_common_typedef.h line 63 — existing TSL1401 driver uses `vuint8`, vision.h mirrors with `volatile uint8` which is equivalent
+- `ipc_protocol.h` included but file does not exist yet — expected forward reference for T9/T10
+- LSP diagnostics show errors because LSP lacks IAR include path config — expected, IAR build resolves these correctly
+
+### Verification Results (all passed)
+- ✅ `vision.c` and `vision.h` exist in `project/code/`
+- ✅ `vision.c` appears in `cyt4bb7_cm_7_1.ewp` (count=1)
+- ✅ No `ipc_send_data` or `ipc_communicate` calls in `cm7_1_isr.c` (count=0)
+- ⚠️ LSP errors are false positives (missing IAR include paths)
+
+## T9: ipc_protocol.h — Shared IPC Data Format (2026-05-09)
+
+### File Created
+- `project/code/ipc_protocol.h` — shared header for CM7_1→CM7_0 vision data transfer
+
+### Protocol Design
+- `IPC_MSG_TYPE_VISION` (0x01) — vision data: image_error + quality packed into uint32
+- `IPC_MSG_TYPE_HEARTBEAT` (0x02) — keep-alive message
+- `ipc_float_converter_t` union — `{ float f_value; uint32 u_value; }` for strict-aliasing-safe float↔uint32 conversion
+- 32-bit packed format: `[31:24] reserved | [23:16] quality | [15:0] image_error × 1000 as int16`
+- Fixed-point at ×1000 gives ±32.767 pixel range with 0.001 pixel resolution
+
+### Key Macros
+- `IPC_VISION_PACK(error_float, quality)` — packs float error + uint8 quality into uint32
+- `IPC_VISION_UNPACK_ERROR(packed)` — extracts error as float (÷1000)
+- `IPC_VISION_UNPACK_QUALITY(packed)` — extracts quality as uint8
+
+### Additional Changes
+- `project/code/control.h` — added `#include "ipc_protocol.h"` (CM7_0 side)
+- `project/code/vision.h` — already had `#include "ipc_protocol.h"` from T4 (forward reference resolved)
+
+### Encoding Note from T4
+- `vision.h` and `vision.c` were created in the previous task (T4) using GBK encoding
+- The edit tool cannot match GBK Chinese characters — use Python raw byte manipulation for GBK files
+- `ipc_protocol.h` and `control.h` edits used ASCII/English only — no encoding issues
+
+### Verification Results (all passed)
+- ✅ `IPC_VISION_PACK` in ipc_protocol.h → 1
+- ✅ `IPC_VISION_UNPACK_ERROR` in ipc_protocol.h → 1
+- ✅ `IPC_VISION_UNPACK_QUALITY` in ipc_protocol.h → 1
+- ✅ `IPC_MSG_TYPE_VISION` in ipc_protocol.h → 1
+- ✅ `IPC_MSG_TYPE_HEARTBEAT` in ipc_protocol.h → 1
+- ✅ `ipc_float_converter_t` in ipc_protocol.h → 1
+- ✅ `_ipc_protocol_h_` include guard → 2 (ifndef + define)
+- ✅ `ipc_protocol.h` included from control.h → 1
+- ✅ `ipc_protocol.h` included from vision.h → 1 (pre-existing from T4)
+- ⚠️ LSP errors are false positives (missing IAR include paths)

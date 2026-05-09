@@ -5,6 +5,7 @@
 
 #include "zf_common_headfile.h"
 #include "servo.h"
+#include "ipc_protocol.h"
 
 //===== 通用工具宏 =====
 
@@ -100,10 +101,10 @@ extern float KD;
 extern float KDD;
 
 //===== 未来模块引用（待实现） =====
-extern float image_error;                               // [TODO: 视觉模块]
+extern volatile float image_error;                      // [TODO: 视觉模块] volatile: IPC callback writes, ISR reads
 extern float mid_point;                                 // [TODO: 视觉模块]
-extern float v_hat;                                     // [TODO: 状态估计器]
-extern float x_hat;                                     // [TODO: 状态估计器]
+extern volatile float v_hat;                            // [TODO: 状态估计器] volatile: IPC callback writes, ISR reads
+extern volatile float x_hat;                            // [TODO: 状态估计器] volatile: IPC callback writes, ISR reads
 extern small_device_value_struct motor_value;           // [TODO: 需在 motor_control.c 中定义]
 
 //===== 函数原型 =====
