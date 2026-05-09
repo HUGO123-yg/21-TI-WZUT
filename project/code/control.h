@@ -110,7 +110,7 @@ extern small_device_value_struct motor_value;           // [TODO: 需在 motor_c
 //===== 函数原型 =====
 void pid_ctrl_Init(void);
 void LQR_control(float V_target, float th);
-float turn_control(float image_error);
+float turn_control(void);
 void pid_ctrl_Run(void);
 void leg_control(void);
 void jump_set_step(int step_num);

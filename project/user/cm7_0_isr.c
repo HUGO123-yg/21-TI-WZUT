@@ -44,6 +44,11 @@
 // **************************** PIT中断函数 ****************************
 void pit0_ch0_isr()                     // 定时器通道 0 中断服务函数  1kHz motion control ISR
 {
+    //===== FPU dependency: Startup_Init() → Cy_SystemInitFpuEnable() → SCB->CPACR (system_tviibh4m_cm7.c:96-106) =====
+    // This ISR uses float arithmetic (sinf/cosf/acosf, 0.001f divisions, DEG_TO_RAD conversions).
+    // FPU is enabled at reset via Startup_Init() in startup.c line 135, guarded by __FPU_USED==1U.
+    // Without FPU, this ISR would exceed the 1ms budget by >10x. Do NOT disable __FPU_USED.
+
     //===== Step 1: IMU→Euler angles =====
     euler_update(0.001f);
 

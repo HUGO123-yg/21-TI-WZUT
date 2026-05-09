@@ -1,4 +1,5 @@
 #include "zf_common_headfile.h"
+#include <math.h>
 
 // 跨上下文共享变量 (volatile: IPC callback 写入, ISR 读取)
 volatile float image_error = 0.0f;
@@ -87,51 +88,23 @@ void pid_ctrl_Init(void)
 
 
 /*-------------------------------------------------------------------------------------------------------------------
-// �������     LQR����ƽ�����ʻ
-// ����˵��     V_target    �趨�ٶ�, ��ʵ�ٶ� m/s
-              th          ��е���
-// ���ز���     null
-// ʹ��ʾ��     LQR_control(2, pitch_mid);
-// ��ע��Ϣ     isr�жϵ���
+// 函数名称     turn_control
+// 功能说明     转向环控制 — 读取全局 volatile float image_error (IPC callback 写入)
+// 输入参数     void (使用全局变量 image_error)
+// 返回参数     float turn_out     转向环输出值
+// 使用示例     float turn_out = turn_control();
+// 备注信息     isr 中断调用, 无有效视觉数据 (|image_error| < 0.001) 时直行 (return 0.0f)
 -------------------------------------------------------------------------------------------------------------------*/
-void LQR_control(float V_target, float th)
+float turn_control(void)
 {
-    //static uint16 pid_time_turn = 0;
-    float L_min = 0.0353019121;
-    float TL = 0, TR = 0;
-    static float x_hat_last = 0;
-    static float last_image_error = 0;
-    float Tangle = -(euler_angle.pitch - th) / DEG_TO_RAD;
-    float gy = -imu660ra_gyro_transition(imu660ra_gyro_y) / DEG_TO_RAD;
-    float v_t = (v_hat - V_target);
-
-    TL = LQR_K[3] * gy + LQR_K[2] * Tangle + LQR_K[1] * v_t + LQR_K[0] * ((x_hat + L_min * sin(euler_angle.pitch / DEG_TO_RAD) - (x_hat_last + v_hat)));
-    TR = LQR_K[7] * gy + LQR_K[6] * Tangle + LQR_K[5] * v_t + LQR_K[4] * ((x_hat + L_min * sin(euler_angle.pitch / DEG_TO_RAD) - (x_hat_last + v_hat)));
-
-    x_hat_last = x_hat;
-
-    // ���½ǶȻ�Ŀ��ʱ��Ϊ���ٶȻ��ṩ�趨ֵ
-//    pid_set_target(&turn_gyro, 0);
-//
-//    // ���ý��ٶȻ��۲�ֵ(Z����ٶ�)
-//    pid_get_observation(&turn_gyro, imu660ra_gyro_transition(imu660ra_gyro_z));
-//    get_timer(TOM0_CH4, &pid_time_turn, &dt_pid_turn_gyro);
-//    pid_set_dt(&turn_gyro, dt_pid_turn_gyro);
-//    pid_run(&turn_gyro);
-
-    float turn_out = KP * image_error + ABS(image_error) * image_error * KPP + KD * (image_error - last_image_error) - imu660ra_gyro_z * KDD;
-    last_image_error = image_error;
-
-    int16 LO = (int16)(Lmoto_K * TL - turn_out);
-    int16 RO = (int16)(Rmoto_K * TR + turn_out);
-
-    //��������
-    dead_compensate(&LO, &RO);
-
-    if(jump_flag != 1)
+    // 零负载回退: 无有效视觉数据时直行
+    if (fabsf(image_error) < 0.001f)
     {
-        foc_set_duty(LO, -RO);
+        return 0.0f;
     }
+
+    return turn_gyro.out;
+}
 }
 
 

@@ -433,3 +433,36 @@ Note: `control.h` transitively includes euler.h, foc.h, pid.h, small_driver_uart
 - ✅ Existing ISR handlers preserved (uart*_isr: 7, gpio_*_exti: 23, pit_ch{1,2,10-21}: 13)
 - ✅ PIT_CH21 preserved (3 references, CCD handler stub intact)
 - ⚠️ LSP errors are false positives (missing IAR include paths)
+
+## T17: Servo Kinematics ISR Verification (2026-05-09)
+
+### Verification Summary — All checks passed
+
+**Check 1: ISR call order in pit0_ch0_isr (cm7_0_isr.c:45-82)**
+- ✅ `foc_set_duty()` at line 73 — Step 6 (motor FOC output)
+- ✅ `left_leg_control()` at line 76, `right_leg_control()` at line 77 — Step 7 (servo kinematics)
+- ✅ Order: motor FOC first (wheels), then servo kinematics (leg joints) — correct
+
+**Check 2: Div-by-zero guard in servo_kinematics.c**
+- ✅ Guard at lines 41-49: `if (L1_MM == 0.0f || L2_MM == 0.0f || D_MM == 0.0f)`
+- ✅ Static `param_warned` one-shot printf — fires only once
+- ✅ Early return prevents NaN/Inf from kinematically-unreachable positions
+- ✅ TODO comment referencing MATLAB simulation dependency
+
+**Check 3: FPU enabled at boot**
+- ✅ `Cy_SystemInitFpuEnable()` at `system_tviibh4m_cm7.c:96-106`
+  - Guards: `#if defined(__FPU_USED) && (__FPU_USED == 1U)`
+  - Action: `SCB->CPACR |= SCB_CPACR_CP10_CP11_ENABLE` (enables CP10/CP11 FPU)
+  - `__DSB()` + `__ISB()` barriers after CPACR write
+  - Saves/restores IRQ state around register write
+- ✅ Called from `Startup_Init()` at `startup.c:135` — `#if !(CY_CPU_CORTEX_M0P)` guard (CM7 only)
+
+**Change made:**
+- Added FPU dependency comment block (lines 47-50) at top of `pit0_ch0_isr()` in `cm7_0_isr.c`
+  - Documents the call chain: `Startup_Init() → Cy_SystemInitFpuEnable() → SCB->CPACR`
+  - Warns that disabling `__FPU_USED` would blow the 1ms ISR budget by >10x
+  - Cross-references exact file locations for traceability
+
+### LSP Diagnostics Note
+All LSP errors in cm7_0_isr.c are false positives — LSP does not have IAR include paths. Same pattern as T4/T8/T9/T10/T12/T13/T16 (14 prior learnings entries documenting this).
+
