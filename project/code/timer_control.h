@@ -1,9 +1,12 @@
 //-------------------------------------------------------------------------------------------------------------------
 // 文件名称       timer_control.h
-// 功能说明       TOM0 定时器测量模块——提供 get_timer() 接口，计算两次调用之间的时间差（秒）
+// 功能说明       DWT 周期计数器 dt 测量模块——提供 get_timer() 接口，计算两次调用之间的时间差（秒）
+//               基于 Cortex-M7 DWT->CYCCNT (32-bit free-running cycle counter @ 250MHz)
+//               无需占用硬件 TCPWM 定时器通道，无通道数量限制
 // 修改记录
 // 日期           作者           备注
-// 2026-05-09    auto           first version
+// 2026-05-09    auto           first version — TCPWM-based
+// 2026-05-10    auto           migrate to DWT cycle counter, eliminate channel sharing
 //-------------------------------------------------------------------------------------------------------------------
 
 #ifndef _timer_control_h_
@@ -12,30 +15,28 @@
 #include "zf_common_headfile.h"
 
 //-------------------------------------------------------------------------------------------------------------------
-// TODO: TOM0_CH0 ~ TOM0_CH4 为占位值。
-// 请根据实际硬件 TOM0 通道分配替换为正确的 timer_index_enum 成员（如 TC_TIME2_CH0 等）。
+// DWT 周期计数器初始化
+// 必须在 clock_init() 之后、首次调用 get_timer() 之前调用一次
+// 只初始化一次即可，重复调用无害
 //-------------------------------------------------------------------------------------------------------------------
-typedef enum
-{
-    TOM0_CH0 = 0,
-    TOM0_CH1,
-    TOM0_CH2,
-    TOM0_CH3,
-    TOM0_CH4,
-} timer_channel_enum;
+void dwt_init(void);
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数名称       get_timer
-// 功能说明       读取硬件定时器计数值，计算与上次调用之间的时间差（秒）
-// 输入参数       ch          TOM0 通道索引（timer_channel_enum）
-//               timer_var   定时器上次计数值（入/出参，调用后更新为当前值）
-//               dt_out      输出两次调用之间的时间差，单位：秒（float）
+// 功能说明       读取 DWT->CYCCNT 计数值，计算与上次调用之间的时间差（秒）
+//               使用 32-bit 无符号算术自动处理计数器溢出（每 ~17.2s 回绕一次）
+// 输入参数       timer_var   上次 CYCCNT 值（入/出参，调用后更新为当前值）
+//               dt_out      输出时间差，单位：秒（float）
 // 返回参数       void
 // 使用示例
-//               static uint16 leg_time = 0;
+//               static uint32 leg_time = 0;
 //               float dt = 0.0f;
-//               get_timer(TOM0_CH0, &leg_time, &dt);
+//               get_timer(&leg_time, &dt);
+//
+// 精度说明：
+//               CPU @ 250MHz → 每周期 4ns → 最大可测间隔 ~17.2s（32-bit 回绕）
+//               典型 PID 调用 (100-1000Hz) 下误差 < 0.001%
 //-------------------------------------------------------------------------------------------------------------------
-void get_timer(timer_channel_enum ch, uint16 *timer_var, float *dt_out);
+void get_timer(uint32 *timer_var, float *dt_out);
 
 #endif

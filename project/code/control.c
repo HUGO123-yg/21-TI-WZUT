@@ -1,18 +1,34 @@
 #include "zf_common_headfile.h"
 #include <math.h>
+#include "control.h"
 
 // 跨上下文共享变量 (volatile: IPC callback 写入, ISR 读取)
 volatile float image_error = 0.0f;
 volatile float v_hat       = 0.0f;
 volatile float x_hat       = 0.0f;
 
-//LQR���������K, �޸Ĳ���ʹ��matlab
+//-------------------------------------------------------------------------------------------------------------------
+// LQR 状态反馈增益矩阵 K (8 元素，对称左右轮)
+//
+// 状态向量: [x_err, v_err, pitch_angle, gyro_rate] × 2 (左/右轮)
+//
+// 参数含义与调参指南:
+//   K[0]=K[4]=-0.0281  位置误差反馈  — 增大→位置刚度↑，过大→振荡
+//   K[1]=K[5]=-0.8067  速度误差反馈  — 增大→速度阻尼↑，过大→响应慢
+//   K[2]=K[6]=-1.4867  角度误差反馈  — 增大→恢复力↑，过小→无法平衡
+//   K[3]=K[7]=-0.1745  角速度反馈   — 增大→角速度阻尼↑
+//
+// 当前值来源: MATLAB 仿真 (LQR 求解)
+// [可调] 需在硬件平台上实测标定 — 根据实际机器人物理参数(质量、惯量、轮径)调整
+//
+// 备选参数 (保留用于对比):
+//   K[0]=K[4]=-0.0380  K[1]=K[5]=-0.8670
+//   K[2]=K[6]=-1.6225  K[3]=K[7]=-0.1791
+//   备选值角度刚度更高，适用于重心较低的配置
+//-------------------------------------------------------------------------------------------------------------------
 const float LQR_K[8]={
         -0.0281 ,  -0.8067 ,  -1.4867 ,  -0.1745,
         -0.0281 ,  -0.8067 ,  -1.4867 ,  -0.1745
-
-//        -0.0380 ,  -0.8670 ,  -1.6225  , -0.1791,
-//        -0.0380 ,  -0.8670  , -1.6225  , -0.1791
 };
 
 //������Ծ����
@@ -26,7 +42,16 @@ const jump_control_struct jump_control_config[] =
 const uint8 jump_step_num = sizeof(jump_control_config) / sizeof(jump_control_struct);
 
 
-//��ˢ���������, ��ȷ�������޸�
+//-------------------------------------------------------------------------------------------------------------------
+// 电机力矩→占空比转换系数 (可调)
+//
+// 含义: 将 LQR 计算的理论力矩 (N·m) 转换为电机占空比 (-10000~10000)
+// 标定方法:
+//   1. 给电机施加已知占空比 D
+//   2. 测量电机输出力矩 T (通过扭矩传感器或电流估算)
+//   3. K = D / T
+//   当前值: 4980 (占空比/力矩)
+//-------------------------------------------------------------------------------------------------------------------
 const float Lmoto_K = 4980;
 const float Rmoto_K = 4980;
 
@@ -62,12 +87,39 @@ float KPP = 0.61f;//0.4;
 float KD = 0.75f;
 float KDD = 0.49f;
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数名称       sensor_health_check
+// 功能说明       传感器健康检查 — 检测 IMU/电机通信故障
+// 输入参数       void
+// 返回参数       uint8   位掩码: bit0=IMU故障, bit1=电机超时, 0=正常
+// 调用示例       if (sensor_health_check()) { foc_set_duty(0,0); return; }
+// 备注信息       ISR 中断调用, 必须快速返回 (无阻塞)
+//-------------------------------------------------------------------------------------------------------------------
+uint8 sensor_health_check(void)
+{
+    uint8 status = 0;
+    
+    // IMU 数据检查 (陀螺仪量程保护, 原始值 ±20000 对应 ±2000dps)
+    if (abs(imu660ra_gyro_x) > 20000 || abs(imu660ra_gyro_y) > 20000 || abs(imu660ra_gyro_z) > 20000)
+    {
+        status |= 0x01;     // IMU 故障
+    }
+    
+    // 电机通信超时检查 (50ms 阈值)
+    if (motor_timeout_check(50))
+    {
+        status |= 0x02;     // 电机通信故障
+    }
+    
+    return status;
+}
+
 /*-------------------------------------------------------------------------------------------------------------------
-// �������     PID���Ƴ�ʼ��
-// ����˵��     null
-// ���ز���     null
-// ʹ��ʾ��     pid_ctrl_Init();
-// ��ע��Ϣ     �ܳ�ʼ������
+// 函数名称     PID控制初始化
+// 功能说明     null
+// 返回参数     null
+// 使用示例     pid_ctrl_Init();
+// 备注信息     总初始化函数
 -------------------------------------------------------------------------------------------------------------------*/
 void pid_ctrl_Init(void)
 {
@@ -85,6 +137,46 @@ void pid_ctrl_Init(void)
     //pid_set_target(&speed, 500);
 }
 
+/*-------------------------------------------------------------------------------------------------------------------
+// 函数名称       LQR_control
+// 功能说明       LQR 平衡控制 + 视觉转向，计算左右轮力矩并输出
+// 输入参数       V_target    设定速度 (m/s)
+                 th          机械中值 (deg)
+// 返回参数       void
+// 使用示例       LQR_control(0.5, pitch_mid);
+// 备注信息       ISR 中断调用, 使用全局 volatile image_error (IPC 写入)
+-------------------------------------------------------------------------------------------------------------------*/
+void LQR_control(float V_target, float th)
+{
+    //static uint16 pid_time_turn = 0;
+    float L_min = 0.0353019121;
+    float TL = 0, TR = 0;
+    static float x_hat_last = 0;
+    static float last_image_error = 0;
+    float Tangle = -(euler_angle.pitch - th) / RAD_TO_DEG;
+    float gy = -imu660ra_gyro_transition(imu660ra_gyro_y) / RAD_TO_DEG;
+    float v_t = (v_hat - V_target);
+
+    TL = LQR_K[3] * gy + LQR_K[2] * Tangle + LQR_K[1] * v_t + LQR_K[0] * ((x_hat + L_min * sinf(euler_angle.pitch / RAD_TO_DEG) - (x_hat_last + v_hat)));
+    TR = LQR_K[7] * gy + LQR_K[6] * Tangle + LQR_K[5] * v_t + LQR_K[4] * ((x_hat + L_min * sinf(euler_angle.pitch / RAD_TO_DEG) - (x_hat_last + v_hat)));
+
+    x_hat_last = x_hat;
+
+    // 视觉转向叠加
+    float turn_out_local = KP * image_error + func_abs(image_error) * image_error * KPP + KD * (image_error - last_image_error) - imu660ra_gyro_z * KDD;
+    last_image_error = image_error;
+
+    int16 LO = (int16)(Lmoto_K * TL - turn_out_local);
+    int16 RO = (int16)(Rmoto_K * TR + turn_out_local);
+
+    // 死区补偿
+    dead_compensate(&LO, &RO);
+
+    if(jump_flag != 1)
+    {
+        foc_set_duty(LO, -RO);
+    }
+}
 
 
 /*-------------------------------------------------------------------------------------------------------------------
@@ -117,10 +209,10 @@ float turn_control(void)
 -------------------------------------------------------------------------------------------------------------------*/
 void pid_ctrl_Run(void)
 {
-    static uint16 pid_time_gyro = 0;
-    static uint16 pid_time_angle = 0;
-    static uint16 pid_time_speed = 0;
-    static uint16 pid_time_turn = 0;
+    static uint32 pid_time_gyro = 0;
+    static uint32 pid_time_angle = 0;
+    static uint32 pid_time_speed = 0;
+    static uint32 pid_time_turn = 0;
     static uint8 timer_flag = 0;
     static float Angle_Out = 0;
     imu660ra_get_gyro();
@@ -128,7 +220,7 @@ void pid_ctrl_Run(void)
     if(0 == timer_flag)     //�ٶȻ�
     {
         pid_get_observation(&speed, -motor_value.receive_left_speed_data + motor_value.receive_right_speed_data);
-        get_timer(TOM0_CH1, &pid_time_speed, &dt_pid_speed);
+        get_timer(&pid_time_speed, &dt_pid_speed);
         pid_set_dt(&speed, dt_pid_speed);
         pid_run(&speed);
     }
@@ -137,7 +229,7 @@ void pid_ctrl_Run(void)
     {
         pid_set_target(&angle, pitch_mid - speed.out);
         pid_get_observation(&angle, euler_angle.pitch);
-        get_timer(TOM0_CH2, &pid_time_angle, &dt_pid_angle);
+        get_timer(&pid_time_angle, &dt_pid_angle);
         pid_set_dt(&angle, dt_pid_angle);
         pid_run(&angle);
         Angle_Out = angle.out + angle_kd * imu660ra_gyro_y * dt_pid_angle;
@@ -146,14 +238,14 @@ void pid_ctrl_Run(void)
     //���ٶȻ�
     pid_set_target(&gyro, Angle_Out);
     pid_get_observation(&gyro, imu660ra_gyro_y);
-    get_timer(TOM0_CH3, &pid_time_gyro, &dt_pid_gyro);
+    get_timer(&pid_time_gyro, &dt_pid_gyro);
     pid_set_dt(&gyro, dt_pid_gyro);
     pid_run(&gyro);
 
     //ת��
     pid_set_target(&turn, mid_point);
     pid_get_observation(&turn, imu660ra_gyro_transition(imu660ra_gyro_z));
-    get_timer(TOM0_CH4, &pid_time_turn, &dt_pid_turn);
+    get_timer(&pid_time_turn, &dt_pid_turn);
     pid_set_dt(&turn, dt_pid_turn);
     pid_run(&turn);
 
@@ -173,11 +265,11 @@ void pid_ctrl_Run(void)
 void leg_control(void)
 {
    // static float leg_long = 5.5f;//4.4f
-    static uint16 leg_time = 0;
+    static uint32 leg_time = 0;
    // static uint16 flag = 40 * 2;    //2s
     static float leg_high_integral = 0;
 
-    get_timer(TOM0_CH0, &leg_time, &dt_leg);
+    get_timer(&leg_time, &dt_leg);
 
     pid_get_observation(&leg_hight, euler_angle.roll);
     pid_set_dt(&leg_hight, dt_leg);
@@ -271,12 +363,23 @@ void jump_control(void)
         }
         else
         {
-            jump_flag = 0;
+        jump_flag = 0;
             jump_time = 0;
         }
     }
 }
 
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数名称       trigger_jump
+// 功能说明       外部触发跳跃 (按键/遥控调用)
+// 输入参数       void
+// 返回参数       void
+//-------------------------------------------------------------------------------------------------------------------
+void trigger_jump(void)
+{
+    jump_flag = 1;
+}
 
 
 /*-------------------------------------------------------------------------------------------------------------------
@@ -291,11 +394,11 @@ void dead_compensate(int16 *input_L, int16 *input_R)
 {
     if(*input_L > 0)
     {
-        *input_L = clip2(*input_L + L_dead_zone_correct, 10000);
+        *input_L = func_limit(*input_L + L_dead_zone_correct, 10000);
     }
     else if(*input_L < 0)
     {
-        *input_L = clip2(*input_L + L_dead_zone_negative, 10000);
+        *input_L = func_limit(*input_L + L_dead_zone_negative, 10000);
     }
     else
     {
@@ -303,11 +406,11 @@ void dead_compensate(int16 *input_L, int16 *input_R)
     }
     if(*input_R > 0)
     {
-        *input_R = clip2(*input_R + R_dead_zone_correct, 10000);
+        *input_R = func_limit(*input_R + R_dead_zone_correct, 10000);
     }
     else if(*input_R < 0)
     {
-        *input_R = clip2(*input_R + R_dead_zone_negative, 10000);
+        *input_R = func_limit(*input_R + R_dead_zone_negative, 10000);
     }
     else
     {

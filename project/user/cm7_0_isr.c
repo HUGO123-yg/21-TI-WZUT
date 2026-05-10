@@ -45,12 +45,20 @@
 void pit0_ch0_isr()                     // 定时器通道 0 中断服务函数  1kHz motion control ISR
 {
     //===== FPU dependency: Startup_Init() → Cy_SystemInitFpuEnable() → SCB->CPACR (system_tviibh4m_cm7.c:96-106) =====
-    // This ISR uses float arithmetic (sinf/cosf/acosf, 0.001f divisions, DEG_TO_RAD conversions).
+    // This ISR uses float arithmetic (sinf/cosf/acosf, 0.001f divisions, RAD_TO_DEG conversions).
     // FPU is enabled at reset via Startup_Init() in startup.c line 135, guarded by __FPU_USED==1U.
     // Without FPU, this ISR would exceed the 1ms budget by >10x. Do NOT disable __FPU_USED.
 
-    //===== Step 1: IMU→Euler angles =====
-    euler_update(0.001f);
+    //===== Step 1: IMU→Euler angles (Mahony complementary filter) =====
+    euler_update_fused(0.001f);
+
+    //===== IMU 数据有效性检查 (陀螺仪 ±2000dps 量程保护) =====
+    if (abs(imu660ra_gyro_x) > 20000 || abs(imu660ra_gyro_y) > 20000 || abs(imu660ra_gyro_z) > 20000)
+    {
+        foc_set_duty(0, 0);           // 紧急停止
+        pit_isr_flag_clear(PIT_CH0);
+        return;
+    }
 
     //===== Step 2: Motor feedback =====
     small_driver_get_angle(&motor_value);
@@ -61,23 +69,29 @@ void pit0_ch0_isr()                     // 定时器通道 0 中断服务函数 
     float motor_speed = (float)(motor_value.receive_left_speed_data + motor_value.receive_right_speed_data) / 2.0f;
     float motor_accel = (motor_speed - last_motor_speed) / 0.001f;
     last_motor_speed = motor_speed;
-    state_estimator_update(euler_angle.pitch / DEG_TO_RAD, motor_accel, 0.001f);
+    state_estimator_update(euler_angle.pitch / RAD_TO_DEG, motor_accel, 0.001f);
 
     //===== Step 4: LQR state feedback =====
     LQR_control(set_speed, pitch_mid);
 
-    //===== Step 5: PID cascade =====
+    //===== Step 5: Sensor health check =====
+    if (sensor_health_check())
+    {
+        foc_set_duty(0, 0);    // 安全停止
+        pit_isr_flag_clear(PIT_CH0);
+        return;
+    }
+
+    //===== Step 6: PID cascade =====
     pid_ctrl_Run();
 
-    //===== Step 6: Motor FOC output =====
-    foc_set_duty((int16)(-(gyro.out + turn.out)), (int16)(gyro.out - turn.out));
-
-    //===== Step 7: Servo kinematics =====
-    left_leg_control(leg_long, 0.0f);
-    right_leg_control(leg_long, 0.0f);
+    //===== Step 7: Servo kinematics (leg control + jump) =====
+    leg_control();              // 腿高控制 (内部调用 left/right_leg_control)
+    jump_control();             // 跳跃控制状态机
 
     //===== Step 8: Cleanup =====
     pit_isr_flag_clear(PIT_CH0);
+    Cy_WDT_ClearWatchdog();                 // WDT feed (clears WDT interrupt counter to prevent reset)
     __DSB();
 }
 
@@ -193,7 +207,7 @@ void uart1_isr (void)
     if(uart_isr_mask(UART_1))            // ����1�����ж�
     {
         
-        wireless_module_uart_handler();  // ����ģ��ͳһ�ص�����
+        small_driver_control_callback(&motor_value);  // ����ģ��ͳһ�ص�����
       
     }
     else                                // ����1�����ж�

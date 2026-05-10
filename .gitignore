@@ -1,0 +1,22 @@
+# IAR Embedded Workbench build artifacts
+Debug_*/
+*.pbi
+*.pbd
+*.xcl
+*.dbgdt
+*.crun
+*.ps1
+*.ninja_log
+*.ninja_deps
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sisyphus

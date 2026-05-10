@@ -4,7 +4,7 @@
 /*-------------------------------------------------------------------------------------------------------------------*/
 
 #include "servo_kinematics.h"
-#include "control.h"    // DEG_TO_RAD 宏
+#include "control.h"    // RAD_TO_DEG 宏
 #include <stdio.h>
 
 //----* 机械中位偏移量 *-----
@@ -37,15 +37,13 @@ static uint8 param_warned = 0;
 
 void servo_control_table(float p, float angle, int16 *out_ph1, int16 *out_ph4)
 {
-    // [TODO: Replace with real kinematics parameters from MATLAB simulation]
-    if (L1_MM == 0.0f || L2_MM == 0.0f || D_MM == 0.0f)
+    // 参数合理性检查（首次调用时输出一次警告）
+    if ((L1_MM < 10.0f || L2_MM < 10.0f || D_MM < 5.0f) && !param_warned)
     {
-        if (!param_warned)
-        {
-            param_warned = 1;
-            printf("[servo_kinematics] WARNING: L1_MM/L2_MM/D_MM are zero (placeholder). Skipping kinematics calculation.\n");
-        }
-        return;
+        param_warned = 1;
+#ifdef KINEMATICS_DEBUG
+        printf("[servo_kinematics] WARNING: L1/L2/D may be unreasonable (L1=%.1f, L2=%.1f, D=%.1f). Check kinematics params.\n", L1_MM, L2_MM, D_MM);
+#endif
     }
 
     // [TODO: 四杆机构逆运动学解算]
@@ -70,7 +68,7 @@ void servo_control_table(float p, float angle, int16 *out_ph1, int16 *out_ph4)
     float theta1_deg, theta2_deg;
 
     // 步骤1: 腿端点坐标 (角度→弧度)
-    float angle_rad = angle / DEG_TO_RAD;
+    float angle_rad = angle / RAD_TO_DEG;
     x = p * cosf(angle_rad);
     y = p * sinf(angle_rad);
 

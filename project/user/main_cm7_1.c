@@ -36,6 +36,7 @@
 #include "zf_common_headfile.h"
 #include "vision.h"
 #include "zf_driver_ipc.h"
+#include "ipc_protocol.h"
 // 以下的工程或者库的改动需要执行以下步骤才能生效
 // 第一步 关闭所有已经打开的文件
 // 第二步 project->clean  等待重新编译完成
@@ -74,6 +75,14 @@ int main(void)
     while(true)
     {
         // 此处编写需要循环执行的代码
+        static uint32 heartbeat_timer = 0;
+
+        if (++heartbeat_timer >= 100)  // ~100 iterations at ~1ms each ≈ 100ms
+        {
+            heartbeat_timer = 0;
+            ipc_send_data(IPC_MSG_TYPE_HEARTBEAT);
+        }
+
         if(tsl1401_finish_flag)
         {
             vision_ternarize();

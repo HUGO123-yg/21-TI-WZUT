@@ -1,100 +1,14 @@
 {
-  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/multicore-motion-vision.md",
-  "started_at": "2026-05-09T10:55:00.000Z",
+  "active_plan": "/Users/hugo/Desktop/hardware/Seekfree_CYT4BB_Opensource_Library/.sisyphus/plans/robot-p0-p2-fixes.md",
+  "started_at": "2026-05-09T15:03:50.370Z",
   "session_ids": [
-    "ses_1f40e2e05ffesG2xcPhXRTq8Qo",
-    "ses_1f3943015ffeyvgTby6GOgG39Z",
-    "ses_1f393f1b0ffdVkvCvSzGOMxTy9",
-    "ses_1f393a6a5ffdJW0565dtMKwNQ6",
-    "ses_1f3935effffeMhFfI7WEqgdo8h",
-    "ses_1f392d570ffe8uwnFv5wqCq6ai",
-    "ses_1f3923356ffetGWSJ1dXvmL31p",
-    "ses_1f391d16bffe5CjLc4HxpotiHM",
-    "ses_1f38ca092ffdAVM51KyN13kfph",
-    "ses_1f38c4c6dffdoNpmaW5oDZMlN1",
-    "ses_1f38bea22ffeqZQByVV0zUoBaB",
-    "ses_1f38b7de9ffeIvV0KyJ2jDUn8i",
-    "ses_1f38b007fffeYi52FS5xo6om42",
-    "ses_1f383ad8fffejf0zl12rLpAlB6",
-    "ses_1f383587bffdCM4TUZVILU3R83",
-    "ses_1f378e7ceffeCZm7YOIF2Bincm",
-    "ses_1f3788ab9ffe5yFxvNzxFn4e0f"
+    "ses_1f2bbdac1ffe3rgiwCLT8qfkIl",
+    "ses_1f2b6eb22ffe87uno0a0xUQqJY",
+    "ses_1f2b67d94ffeWUc1knyXxjATfW",
+    "ses_1f2b60450fferTyf0iHJ87j0gM",
+    "ses_1f2b57b93ffeBZhiZnIKectiqR"
   ],
-  "plan_name": "multicore-motion-vision",
-  "agent": "atlas",
-  "session_origins": {
-    "ses_1f40e2e05ffesG2xcPhXRTq8Qo": "direct",
-    "ses_1f3943015ffeyvgTby6GOgG39Z": "appended",
-    "ses_1f393f1b0ffdVkvCvSzGOMxTy9": "appended",
-    "ses_1f393a6a5ffdJW0565dtMKwNQ6": "appended",
-    "ses_1f3935effffeMhFfI7WEqgdo8h": "appended",
-    "ses_1f392d570ffe8uwnFv5wqCq6ai": "appended",
-    "ses_1f3923356ffetGWSJ1dXvmL31p": "appended",
-    "ses_1f391d16bffe5CjLc4HxpotiHM": "appended",
-    "ses_1f38ca092ffdAVM51KyN13kfph": "appended",
-    "ses_1f38c4c6dffdoNpmaW5oDZMlN1": "appended",
-    "ses_1f38bea22ffeqZQByVV0zUoBaB": "appended",
-    "ses_1f38b7de9ffeIvV0KyJ2jDUn8i": "appended",
-    "ses_1f38b007fffeYi52FS5xo6om42": "appended",
-    "ses_1f383ad8fffejf0zl12rLpAlB6": "appended",
-    "ses_1f383587bffdCM4TUZVILU3R83": "appended",
-    "ses_1f378e7ceffeCZm7YOIF2Bincm": "appended",
-    "ses_1f3788ab9ffe5yFxvNzxFn4e0f": "appended"
-  },
-  "task_sessions": {
-    "todo:1": {
-      "task_key": "todo:1",
-      "task_label": "1",
-      "task_title": "**Add div-by-zero safety guard to servo_kinematics.c**",
-      "session_id": "ses_1f393a6a5ffdJW0565dtMKwNQ6",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-05-09T11:10:13.962Z"
-    },
-    "todo:5": {
-      "task_key": "todo:5",
-      "task_label": "5",
-      "task_title": "**Create CM7_1 vision application skeleton + add to CM7_1 IAR project**",
-      "session_id": "ses_1f391d16bffe5CjLc4HxpotiHM",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-05-09T11:14:46.705Z"
-    },
-    "todo:8": {
-      "task_key": "todo:8",
-      "task_label": "8",
-      "task_title": "**IPC init on CM7_0 — register callback that updates volatile image_error**",
-      "session_id": "ses_1f38c4c6dffdoNpmaW5oDZMlN1",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-05-09T11:20:41.787Z"
-    },
-    "todo:10": {
-      "task_key": "todo:10",
-      "task_label": "10",
-      "task_title": "**Implement CCD ternarization algorithm in vision.c**",
-      "session_id": "ses_1f38b007fffeYi52FS5xo6om42",
-      "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-05-09T11:24:27.519Z"
-    },
-    "todo:13": {
-      "task_key": "todo:13",
-      "task_label": "13",
-      "task_title": "**Wire 1kHz PIT-driven motion control ISR on CM7_0**",
-      "session_id": "ses_1f383ad8fffejf0zl12rLpAlB6",
-      "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-05-09T11:36:22.811Z"
-    },
-    "todo:15": {
-      "task_key": "todo:15",
-      "task_label": "15",
-      "task_title": "**Integrate IPC image_error into control pipeline (volatile read)**",
-      "session_id": "ses_1f378e7ceffeCZm7YOIF2Bincm",
-      "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-05-09T11:43:00.860Z"
-    }
-  }
+  "plan_name": "robot-p0-p2-fixes",
+  "worktree_path": "",
+  "completed_at": "2026-05-09T15:40:34.132Z"
 }

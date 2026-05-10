@@ -157,14 +157,16 @@ void uart0_isr (void)
 void uart1_isr (void)
 {
     // Handler removed — peripheral owned by CM7_0
-    uart_clear_flag(UART_1);
+    Cy_SCB_ClearRxInterrupt(get_scb_module(UART_1), ~0UL);
+    Cy_SCB_ClearTxInterrupt(get_scb_module(UART_1), ~0UL);
     __DSB();
 }
 
 void uart2_isr (void)
 {
     // Handler removed — peripheral owned by CM7_0
-    uart_clear_flag(UART_2);
+    Cy_SCB_ClearRxInterrupt(get_scb_module(UART_2), ~0UL);
+    Cy_SCB_ClearTxInterrupt(get_scb_module(UART_2), ~0UL);
     __DSB();
 }
 
@@ -187,7 +189,8 @@ void uart3_isr (void)
 void uart4_isr (void)
 {
     // Handler removed — peripheral owned by CM7_0
-    uart_clear_flag(UART_4);
+    Cy_SCB_ClearRxInterrupt(get_scb_module(UART_4), ~0UL);
+    Cy_SCB_ClearTxInterrupt(get_scb_module(UART_4), ~0UL);
     __DSB();
 }
 

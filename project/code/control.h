@@ -9,9 +9,8 @@
 
 //===== 通用工具宏 =====
 
-#define DEG_TO_RAD (57.29577951308232f)    // 180/PI，弧度转角度的除数
-#define ABS(x)     (((x) >= 0) ? (x) : -(x))
-#define clip2(x, max) (((x) > (max)) ? (max) : ((x) < -(max)) ? -(max) : (x))
+#define RAD_TO_DEG (57.29577951308232f)    // 180/PI，弧度转角度换算系数（度 = 弧度 × RAD_TO_DEG；弧度 = 度 / RAD_TO_DEG）
+#define ASSERT(cond) zf_assert(cond)
 
 //===== 跳跃控制阶段配置 =====
 
@@ -23,33 +22,6 @@ typedef struct
     void (*handler)(int);   // 阶段处理回调函数
     const char *name;       // 阶段名称
 } jump_control_struct;
-
-//===== 舵机通道定义（与 servo.h 中的 STEER_1~4 对应） =====
-
-#define SERVO_1    (STEER_1_PWM)     // 左腿上舵机 → TCPWM_CH10_P05_0
-#define SERVO_2    (STEER_2_PWM)     // 左腿下舵机 → TCPWM_CH10_P05_1
-#define SERVO_3    (STEER_3_PWM)     // 右腿上舵机 → TCPWM_CH10_P05_2
-#define SERVO_4    (STEER_4_PWM)     // 右腿下舵机 → TCPWM_CH10_P05_3
-
-#define SERVO1_MID (STEER_1_CENTER)  // 左腿上舵机中位值 = 1000
-#define SERVO2_MID (STEER_2_CENTER)  // 左腿下舵机中位值 = 1000
-#define SERVO3_MID (STEER_3_CENTER)  // 右腿上舵机中位值 = 1000
-#define SERVO4_MID (STEER_4_CENTER)  // 右腿下舵机中位值 = 1000
-
-//===== 定时器通道定义 [TODO: 确认 TOM0 实例对应的实际通道号] =====
-
-#define TOM0_CH0    (0)   // 腿高控制定时器
-#define TOM0_CH1    (0)   // 速度环定时器
-#define TOM0_CH2    (0)   // 角度环定时器
-#define TOM0_CH3    (0)   // 角速度环定时器
-#define TOM0_CH4    (0)   // 转向环定时器
-
-//===== 死区校准参数 [TODO: 实测标定] =====
-
-#define L_dead_zone_correct    (0)     // 左轮正转死区补偿
-#define L_dead_zone_negative   (0)     // 左轮反转死区补偿
-#define R_dead_zone_correct    (0)     // 右轮正转死区补偿
-#define R_dead_zone_negative   (0)     // 右轮反转死区补偿
 
 //===== 配套模块头文件引用 =====
 #include "pid.h"
@@ -118,5 +90,11 @@ void jump_control(void);
 void dead_compensate(int16 *input_L, int16 *input_R);
 void left_leg_control(float p, float angle);
 void right_leg_control(float p, float angle);
+
+//===== 传感器健康检查 =====
+uint8 sensor_health_check(void);
+
+//===== 跳跃触发 =====
+void trigger_jump(void);
 
 #endif
