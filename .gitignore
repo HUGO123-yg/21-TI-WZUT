@@ -1,0 +1,26 @@
+# IAR Embedded Workbench build artifacts
+project/iar/Debug_m7_0/
+project/iar/Debug_m7_1/
+project/iar/project_config/Debug_m7_0/
+project/iar/project_config/Debug_m7_1/
+project/iar/project_config/settings/*.cspy.bat
+project/iar/project_config/settings/*.cspy.ps1
+
+# Object files
+*.o
+*.out
+
+# Listing files
+*.lst
+*.map
+
+# Ninja build system
+*.ninja*
+.ninja_*
+
+# IAR browse info
+*.pbi
+*.pbd
+
+# macOS
+.DS_Store

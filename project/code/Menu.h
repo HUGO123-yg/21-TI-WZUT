@@ -1,0 +1,24 @@
+/*
+ * Menu.h
+ *
+ *  Created on: 2026��3��24��
+ *      Author: 24244
+ */
+
+#ifndef CODE_MENU_H_
+#define CODE_MENU_H_
+
+//��������
+void Menu(void);//�˵�����
+
+//�ṹ������
+typedef struct
+{
+    int current;
+    int up;//���Ϸ�������
+    int down;//���·�������
+    int enter;//ȷ��������
+    void (*current_operation)(void);//��ǰҳ���������Ҫִ�е���ʾ����������һ������ָ��
+} key_table;
+
+#endif /* CODE_MENU_H_ */
