@@ -2,6 +2,7 @@
 
 #define WHEEL_CIRCUMFERENCE  (6.4f)
 #define ACC_CONV_FACTOR      (4098.0f)   // imu660rb LSB/g
+#define SPEED_TO_ANGLE_GAIN  (0.003f)    // 速度环输出 → 角度目标 (度/out单位)
 
 //================================================================================
 // 全局变量
@@ -685,8 +686,11 @@ void pit_call_back(void)
             Nag_System();
 
             // 角度环 PID — 前向平衡控制
+            // 速度环输出反馈到角度目标，实现速度 → 倾角 → 加速度的闭环
+            float angle_target = (0.0f - roll_balance_cascade.posture_value.mechanical_zero)
+                               - (roll_balance_cascade.speed_cycle.out * SPEED_TO_ANGLE_GAIN);
             pid_control(&roll_balance_cascade.angle_cycle,
-                0.0f - roll_balance_cascade.posture_value.mechanical_zero,
+                angle_target,
                 -roll_balance_cascade.posture_value.pit);
         }
 
