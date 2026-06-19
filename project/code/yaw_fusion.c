@@ -5,6 +5,8 @@ static float  s_offset       = 0.0f;
 static bool   s_calibrated   = false;
 static uint32 s_last_tick    = 0;
 
+float yaw_fusion_gyro_bias = 0.0f;
+
 static float norm_angle(float a)
 {
     while (a >  180.0f) a -= 360.0f;
@@ -14,9 +16,10 @@ static float norm_angle(float a)
 
 void yaw_fusion_init(void)
 {
-    s_offset     = 0.0f;
-    s_calibrated = false;
-    s_last_tick  = 0;
+    s_offset              = 0.0f;
+    s_calibrated          = false;
+    s_last_tick           = 0;
+    yaw_fusion_gyro_bias  = 0.0f;
 }
 
 bool yaw_fusion_is_calibrated(void)
@@ -37,8 +40,9 @@ void yaw_fusion_update(void)
     if (gnss.antenna_direction_state == 1)
     {
         gps_heading = gnss.antenna_direction;
-        kp          = YAW_FUSION_KP_ANTENNA;
-        valid       = true;
+        kp = (gnss.satellite_used >= 12)
+            ? YAW_FUSION_KP_ANTENNA_HIGH : YAW_FUSION_KP_ANTENNA;
+        valid = true;
     }
     else if (gnss.state == 1 && gnss.speed > YAW_FUSION_MIN_SPEED)
     {
@@ -64,6 +68,8 @@ void yaw_fusion_update(void)
     else
     {
         s_offset = s_offset * (1.0f - kp) + diff * kp;
+        // GPS航向误差 → 陀螺仪零偏慢速校准
+        yaw_fusion_gyro_bias += diff * 0.05f;
     }
 
     roll_balance_cascade.posture_value.yaw = norm_angle(imu_yaw + s_offset);

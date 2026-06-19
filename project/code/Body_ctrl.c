@@ -317,10 +317,21 @@ void car_steer_control(void)
     steer_location_offset[3] = (steer_4.now_location - steer_4.center_num) * steer_4.steer_dir;
 
     //---------- 正常模式目标偏移 ----------
-    steer_target_offset[0] = (int16)( steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
-    steer_target_offset[1] = (int16)( steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
-    steer_target_offset[2] = (int16)(-steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
-    steer_target_offset[3] = (int16)(-steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
+    if (rotation.state == ROT_RUNNING)
+    {
+        // 旋转模式：双腿对称差速，左右两侧获得相反修正
+        steer_target_offset[0] = (int16)( steer_output_duty_filter + steer_balance_angle_count_local);
+        steer_target_offset[1] = (int16)( steer_output_duty_filter - steer_balance_angle_count_local);
+        steer_target_offset[2] = (int16)(-steer_output_duty_filter + steer_balance_angle_count_local);
+        steer_target_offset[3] = (int16)(-steer_output_duty_filter - steer_balance_angle_count_local);
+    }
+    else
+    {
+        steer_target_offset[0] = (int16)( steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[1] = (int16)( steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[2] = (int16)(-steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[3] = (int16)(-steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
+    }
 
     if (run_state == 0)
     {
@@ -539,8 +550,8 @@ void car_motor_control(void)
         }
 
         // Z 轴陀螺仪辅助转向
-        left_motor_duty   = func_limit_ab(left_motor_duty  + imu660ra_gyro_z / 3, -turn_duty_max, turn_duty_max);
-        right_motor_duty  = func_limit_ab(right_motor_duty - imu660ra_gyro_z / 3, -turn_duty_max, turn_duty_max);
+        left_motor_duty   = func_limit_ab(left_motor_duty  + imu660rb_gyro_z / 3, -turn_duty_max, turn_duty_max);
+        right_motor_duty  = func_limit_ab(right_motor_duty - imu660rb_gyro_z / 3, -turn_duty_max, turn_duty_max);
     }
     else
     {
@@ -674,6 +685,7 @@ void pit_call_back(void)
     sys_times++;
 
     imu660rb_get_gyro();
+    imu660rb_gyro_z -= (int16)yaw_fusion_gyro_bias;
     imu660rb_get_acc();
     quaternion_module_calculate(&roll_balance_cascade);
     yaw_fusion_update();
@@ -720,6 +732,13 @@ void pit_call_back(void)
             if (straight_test.state == STRAIGHT_RUNNING)
             {
                 steer_adj += (int16)straight_test.steer_correction;
+            }
+            // 旋转模式：驱动 rotation 状态机并叠加差速
+            if (rotation.state == ROT_RUNNING)
+            {
+                target_speed = 0;
+                rotation_run();
+                steer_adj += rotation.turn_duty;
             }
             CYT2_D_motor_ctrl(
                 -(int16)roll_balance_cascade.angular_speed_cycle.out + steer_adj,

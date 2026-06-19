@@ -4,9 +4,12 @@
 #include "zf_common_headfile.h"
 
 #define YAW_FUSION_KP_ANTENNA      0.08f
+#define YAW_FUSION_KP_ANTENNA_HIGH 0.15f
 #define YAW_FUSION_KP_MOTION       0.03f
 #define YAW_FUSION_MIN_SPEED       1.0f
 #define YAW_FUSION_UPDATE_MS       100
+
+extern float yaw_fusion_gyro_bias;
 
 void yaw_fusion_init(void);
 void yaw_fusion_update(void);
