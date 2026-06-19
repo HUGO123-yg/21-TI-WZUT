@@ -82,13 +82,21 @@ void flash_Nag_Write_Meta(void)
 //-------------------------------------------------------------------------------------------------------------------
 uint16 Get_Path_SaveIndex(uint8 path_id)
 {
+    uint32 save_idx_raw;
+
     if (path_id < 1 || path_id > 3) return 0;
 
     flash_buffer_clear();
     flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-    uint16 save_idx = flash_union_buffer[MaxSize + (path_id - 1)].uint32_type;
+    save_idx_raw = flash_union_buffer[MaxSize + (path_id - 1)].uint32_type;
     flash_buffer_clear();
-    return save_idx;
+
+    if (save_idx_raw == 0xFFFFFFFF)
+    {
+        return 0;
+    }
+
+    return (uint16)save_idx_raw;
 }
 
 
@@ -340,13 +348,7 @@ void flash_Nag_Write(void)
     flash_write_page_from_buffer(0, N.Flash_page_index, FLASH_PAGE_LENGTH);
     if (N.End_f == 1)
     {
-       
-
-        flash_union_buffer[MaxSize + 2].uint32_type = N.Save_index;
-        
-        flash_write_page_from_buffer(0, Nag_End_Page, FLASH_PAGE_LENGTH);
-
-         
+        flash_Nag_Write_Meta();
     }
      // ���ԣ���ӡ������ǰ5������
     for (int i = 0; i < 5 && i < N.size; i++) {
@@ -363,15 +365,7 @@ void flash_Nag_Write(void)
 void flash_Nag_Read(void)
 {
     flash_buffer_clear();
-    static uint8 Index_R_f = 0;
-
-    if (0 == Index_R_f)
-    {
-        flash_read_page_to_buffer(0, Nag_End_Page, FLASH_PAGE_LENGTH);
-        N.Save_index = flash_union_buffer[MaxSize + 2].uint32_type;
-        Index_R_f = 1;
-        flash_buffer_clear();
-    }
+    N.Save_index = Get_Path_SaveIndex(Nag_PathSelect);
     if (flash_check(0, N.Flash_page_index))
     {
         flash_read_page_to_buffer(0, N.Flash_page_index, FLASH_PAGE_LENGTH);

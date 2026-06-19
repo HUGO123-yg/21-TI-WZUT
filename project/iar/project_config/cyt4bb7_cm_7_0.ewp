@@ -1146,6 +1146,12 @@
             <name>$PROJ_DIR$\..\..\code\gnss_cache.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\yaw_fusion.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\yaw_fusion.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Menu.c</name>
         </file>
         <file>

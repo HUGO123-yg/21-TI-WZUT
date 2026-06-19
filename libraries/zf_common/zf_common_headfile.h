@@ -113,6 +113,7 @@
 #include "Imu.h"
 #include "Flash.h"
 #include "gnss_cache.h"
+#include "yaw_fusion.h"
 #include "Body_ctrl.h"
 #include "Menu.h"
 

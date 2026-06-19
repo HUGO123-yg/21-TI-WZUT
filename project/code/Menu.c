@@ -1,1017 +1,685 @@
 /*
- * Menu.c
+ * Menu.c — 3-Level Hierarchical Menu State Machine
  *
- *  Created on: 2026��3��24��
- *      Author: 24244
+ *  Created on: 2026-6-19
+ *      Author: HUGO
+ *  Optimized: 2026-06-19 — data-driven draw, enum navigation, init_flag lifecycle
+ *
+ * Architecture:
+ *   A key_table[] drives all navigation. Each entry is a node in a 3-level tree:
+ *     Level 0:      Welcome page (MENU_ROOT)
+ *     Level 1 (x6): Main menu groups A-F — select a subsystem
+ *     Level 2 (x30): Sub-menus within each group — pick an operation
+ *     Level 3 (x25): Leaf pages — execute the operation (record / save / replay / clear / jump)
+ *
+ *   Navigation: up/down/enter fields hold the NEXT node index. Pressing a key
+ *   overwrites func_index, then Menu() dispatches the new node's draw callback.
+ *   Level 3 has up==down==self (no vertical movement at leaf level);
+ *   enter points back to the parent Level 2 entry for "go back".
+ *
+ *   init_flag lifecycle:
+ *   - Each entry has an init_flag (in key_table). Level 3 recording/save/replay/clear
+ *     functions use it for one-shot initialization.
+ *   - Menu() resets init_flag to 0 when the user LEAVES a node, so re-entering
+ *     triggers a fresh init (fixes the old static-once_flag bug).
+ *
+ *   Redraw optimization:
+ *   - is_static=1 (Level 0/1/2): Skip redraw when func_index hasn't changed.
+ *   - is_static=0 (Level 3 telemetry): Continuous redraw for live data display.
  */
 
 #include "zf_common_headfile.h"
 
-int  func_index = 0; //��ʼ��ʾ��ӭ����
-int  last_index = 127; //last��ʼΪ��Чֵ
+// ============================================================
+// Menu Page Label Tables (const → .rodata, shared across nodes)
+// ============================================================
 
+// ---- Level 1: two variants — "E" vs "JUMP" on rows 4-5 ----------
+static const char *page_l1_items[] = { "GO", "B", "C", "TEST", "E"    };
+static const char *page_l1_jump[]  = { "GO", "B", "C", "TEST", "JUMP" };
 
-void (*current_operation_index)(void);       //��ʾ��������ָ��(��ǰ��������)
+// ---- Level 2 group A: Record / SAVE / Reproduce -----------------
+static const char *page_l2_a[] = { "Record", "SAVE", "Reproduce", "A_4", "A_5" };
 
-void fun_0(void);
+// ---- Level 2 group B: row 1 shows "Clear" instead of "B_4" ------
+static const char *page_l2_b[]       = { "Record", "SAVE", "Reproduce", "B_4",  "B_5" };
+static const char *page_l2_b_clear[] = { "Record", "SAVE", "Reproduce", "Clear","B_5" };
 
-void fun_a1(void);
-void fun_b1(void);
-void fun_c1(void);
-void fun_d1(void);
-void fun_e1(void);
-void fun_f1(void);
+// ---- Level 2 group C: row 4 shows camera sensor name ------------
+static const char *page_l2_c[] = { "Record", "SAVE", "Reproduce", "Mt9v03_text", "C_5" };
 
-void fun_a21(void);
-void fun_a22(void);
-void fun_a23(void);
-void fun_a24(void);
-void fun_a25(void);
-void fun_a26(void);
+// ---- Level 2 group D: 测试模块（直行100m等） --------------------
+static const char *page_l2_test[] = { "Straight", "Circle", "Square", "S-Curve", "Custom" };
 
-void fun_b21(void);
-void fun_b22(void);
-void fun_b23(void);
-void fun_b24(void);
-void fun_b25(void);
-void fun_b26(void);
+// ---- Level 2 group E: Jump subsystem commands --------------------
+static const char *page_l2_e[] = { "Trigger", "Config", "Abort", "Default", "Status" };
 
-void fun_c21(void);
-void fun_c22(void);
-void fun_c23(void);
-void fun_c24(void);
-void fun_c25(void);
-void fun_c26(void);
+// ============================================================
+// Global State
+// ============================================================
+// func_index — current active menu node (overwritten by key events)
+// last_index — previous node; used to detect page transitions and
+//              reset init_flag of the node being left.
+//              Initialized to MENU_COUNT (invalid sentinel) so the
+//              first frame always triggers a full draw.
+static menu_node_t  func_index = MENU_ROOT;
+static menu_node_t  last_index = MENU_COUNT;
 
-void fun_d21(void);
-void fun_d22(void);
-void fun_d23(void);
-void fun_d24(void);
-void fun_d25(void);
-void fun_d26(void);
+// Cached function pointer — avoids re-reading table[].draw on
+// every frame when is_static=1 skips the redraw.
+static void       (*current_operation_index)(void);
 
-void fun_e21(void);
-void fun_e22(void);
-void fun_e23(void);
-void fun_e24(void);
-void fun_e25(void);
-void fun_e26(void);
+// ============================================================
+// Forward Declarations (required for state table initializers)
+// ============================================================
+static void fun_0(void);
+static void draw_not_implemented(void);
+static void draw_menu_items(const char *items[], uint8 count, uint8 cursor, const char *title);
+static void draw_l1_menu(void);
+static void draw_l2_a(void);
+static void draw_l2_b(void);
+static void draw_l2_c(void);
+static void draw_l2_d(void);
+static void draw_l2_e(void);
+void fun_a31(void); void fun_a32(void); void fun_a33(void); void fun_a34(void);
+void fun_b31(void); void fun_b32(void); void fun_b33(void); void fun_b34(void);
+void fun_c31(void); void fun_c32(void); void fun_c33(void); void fun_c34(void);
+void fun_e31(void); void fun_e32(void); void fun_e33(void); void fun_e34(void); void fun_e35(void);
+void fun_d31(void); void fun_d32(void); void fun_d33(void); void fun_d34(void); void fun_d35(void);
 
-void fun_a31(void);
-void fun_a32(void);
-void fun_a33(void);
-void fun_a34(void);
-void fun_a35(void);
-
-void fun_b31(void);
-void fun_b32(void);
-void fun_b33(void);
-void fun_b34(void);
-void fun_b35(void);
-
-void fun_c31(void);
-void fun_c32(void);
-void fun_c33(void);
-void fun_c34(void);
-void fun_c35(void);
-
-void fun_d31(void);
-void fun_d32(void);
-void fun_d33(void);
-void fun_d34(void);
-void fun_d35(void);
-
-void fun_e31(void);
-void fun_e32(void);
-void fun_e33(void);
-void fun_e34(void);
-void fun_e35(void);
-
-key_table table_display[100]=                 //�ṹ������
+// ============================================================
+// Menu State Table — 62 entries, indexed by menu_node_t enum
+//   Field layout: { up, down, enter, draw, cursor, is_static, init_flag }
+//
+//   up/down/enter : next node on UP / DOWN / ENTER key press.
+//   draw          : callback invoked when this node is active.
+//   cursor        : row 1-6 where the "->" indicator is drawn (0 = unused).
+//   is_static     : 1 = static page (skip redraw when func_index unchanged).
+//                   0 = dynamic page (telemetry, needs continuous refresh).
+//   init_flag     : one-shot init guard; reset to 0 by Menu() when leaving node.
+//
+//   Level 3 entries: up==down==self (locked), enter=parent L2 node.
+// ============================================================
+static key_table table_dispaly[MENU_COUNT] =
 {
-//{���������ϣ����£�ȷ�ϣ���ʾ����}
-    //��0��
-    {0,0,0,1,(*fun_0)},                     //AIIT_meun
+    // ---- Level 0: Welcome ----------------------------------------
+    [MENU_ROOT] = { MENU_ROOT, MENU_ROOT, MENU_L1_A, fun_0, 0, 1, 0 },
 
-    //��1��
-    {1,6,2, 7,(*fun_a1)},
-    {2,1,3,13,(*fun_b1)},
-    {3,2,4,19,(*fun_c1)},
-    {4,3,5,25,(*fun_d1)},
-    {5,4,6,31,(*fun_e1)},
-    {6,5,1, 0,(*fun_f1)},
+    // ---- Level 1: Main menu (all share draw_l1_menu) -------------
+    [MENU_L1_A] = { MENU_L1_F, MENU_L1_B, MENU_L2_A1, draw_l1_menu, 1, 1, 0 },
+    [MENU_L1_B] = { MENU_L1_A, MENU_L1_C, MENU_L2_B1, draw_l1_menu, 2, 1, 0 },
+    [MENU_L1_C] = { MENU_L1_B, MENU_L1_D, MENU_L2_C1, draw_l1_menu, 3, 1, 0 },
+    [MENU_L1_D] = { MENU_L1_C, MENU_L1_E, MENU_L2_D1, draw_l1_menu, 4, 1, 0 },
+    [MENU_L1_E] = { MENU_L1_D, MENU_L1_F, MENU_L2_E1, draw_l1_menu, 5, 1, 0 },
+    [MENU_L1_F] = { MENU_L1_E, MENU_L1_A, MENU_ROOT,  draw_l1_menu, 6, 1, 0 }, // ESC → root
 
-    //��2��
-    {7,12, 8, 37, (*fun_a21)},
-    {8, 7, 9, 38, (*fun_a22)},
-    {9, 8, 10,39, (*fun_a23)},
-    {10,9, 11,40, (*fun_a24)},
-    {11,10,12,41, (*fun_a25)},
-    {12,11,7,  1, (*fun_a26)},            //ESC
+    // ---- Level 2 group A: Navigation path 1 submenu --------------
+    [MENU_L2_A1] = { MENU_L2_A6, MENU_L2_A2, MENU_L3_A1, draw_l2_a, 1, 1, 0 },
+    [MENU_L2_A2] = { MENU_L2_A1, MENU_L2_A3, MENU_L3_A2, draw_l2_a, 2, 1, 0 },
+    [MENU_L2_A3] = { MENU_L2_A2, MENU_L2_A4, MENU_L3_A3, draw_l2_a, 3, 1, 0 },
+    [MENU_L2_A4] = { MENU_L2_A3, MENU_L2_A5, MENU_L3_A4, draw_l2_a, 4, 1, 0 },
+    [MENU_L2_A5] = { MENU_L2_A4, MENU_L2_A6, MENU_L3_A5, draw_l2_a, 5, 1, 0 },
+    [MENU_L2_A6] = { MENU_L2_A5, MENU_L2_A1, MENU_L1_A,  draw_l2_a, 6, 1, 0 }, // ESC
 
-    {13,18,14,42, (*fun_b21)},
-    {14,13,15,43, (*fun_b22)},
-    {15,14,16,44, (*fun_b23)},
-    {16,15,17,45, (*fun_b24)},
-    {17,16,18,46, (*fun_b25)},
-    {18,17,13, 2, (*fun_b26)},           //ESC
+    // ---- Level 2 group B: Navigation path 2 submenu --------------
+    [MENU_L2_B1] = { MENU_L2_B6, MENU_L2_B2, MENU_L3_B1, draw_l2_b, 1, 1, 0 },
+    [MENU_L2_B2] = { MENU_L2_B1, MENU_L2_B3, MENU_L3_B2, draw_l2_b, 2, 1, 0 },
+    [MENU_L2_B3] = { MENU_L2_B2, MENU_L2_B4, MENU_L3_B3, draw_l2_b, 3, 1, 0 },
+    [MENU_L2_B4] = { MENU_L2_B3, MENU_L2_B5, MENU_L3_B4, draw_l2_b, 4, 1, 0 },
+    [MENU_L2_B5] = { MENU_L2_B4, MENU_L2_B6, MENU_L3_B5, draw_l2_b, 5, 1, 0 },
+    [MENU_L2_B6] = { MENU_L2_B5, MENU_L2_B1, MENU_L1_B,  draw_l2_b, 6, 1, 0 }, // ESC
 
-    {19,24,20,47, (*fun_c21)},
-    {20,19,21,48, (*fun_c22)},
-    {21,20,22,49, (*fun_c23)},
-    {22,21,23,50, (*fun_c24)},
-    {23,22,24,51, (*fun_c25)},
-    {24,23,19,3,  (*fun_c26)},           //ESC
+    // ---- Level 2 group C: Navigation path 3 submenu --------------
+    [MENU_L2_C1] = { MENU_L2_C6, MENU_L2_C2, MENU_L3_C1, draw_l2_c, 1, 1, 0 },
+    [MENU_L2_C2] = { MENU_L2_C1, MENU_L2_C3, MENU_L3_C2, draw_l2_c, 2, 1, 0 },
+    [MENU_L2_C3] = { MENU_L2_C2, MENU_L2_C4, MENU_L3_C3, draw_l2_c, 3, 1, 0 },
+    [MENU_L2_C4] = { MENU_L2_C3, MENU_L2_C5, MENU_L3_C4, draw_l2_c, 4, 1, 0 },
+    [MENU_L2_C5] = { MENU_L2_C4, MENU_L2_C6, MENU_L3_C5, draw_l2_c, 5, 1, 0 },
+    [MENU_L2_C6] = { MENU_L2_C5, MENU_L2_C1, MENU_L1_C,  draw_l2_c, 6, 1, 0 }, // ESC
 
-    {25,30,26,52, (*fun_d21)},
-    {26,25,27,53, (*fun_d22)},
-    {27,26,28,54, (*fun_d23)},
-    {28,27,29,55, (*fun_d24)},
-    {29,28,30,56, (*fun_d25)},
-    {30,29,25,4,  (*fun_d26)},           //ESC
+    // ---- Level 2 group D: Reserved / unimplemented ---------------
+    [MENU_L2_D1] = { MENU_L2_D6, MENU_L2_D2, MENU_L3_D1, draw_l2_d, 1, 1, 0 },
+    [MENU_L2_D2] = { MENU_L2_D1, MENU_L2_D3, MENU_L3_D2, draw_l2_d, 2, 1, 0 },
+    [MENU_L2_D3] = { MENU_L2_D2, MENU_L2_D4, MENU_L3_D3, draw_l2_d, 3, 1, 0 },
+    [MENU_L2_D4] = { MENU_L2_D3, MENU_L2_D5, MENU_L3_D4, draw_l2_d, 4, 1, 0 },
+    [MENU_L2_D5] = { MENU_L2_D4, MENU_L2_D6, MENU_L3_D5, draw_l2_d, 5, 1, 0 },
+    [MENU_L2_D6] = { MENU_L2_D5, MENU_L2_D1, MENU_L1_D,  draw_l2_d, 6, 1, 0 }, // ESC
 
-    {31,36,32,57, (*fun_e21)},
-    {32,31,33,58, (*fun_e22)},
-    {33,32,34,59, (*fun_e23)},
-    {34,33,35,60, (*fun_e24)},
-    {35,34,36,61, (*fun_e25)},
-    {36,35,31,5,  (*fun_e26)},           //ESC
+    // ---- Level 2 group E: Jump control submenu -------------------
+    [MENU_L2_E1] = { MENU_L2_E6, MENU_L2_E2, MENU_L3_E1, draw_l2_e, 1, 1, 0 },
+    [MENU_L2_E2] = { MENU_L2_E1, MENU_L2_E3, MENU_L3_E2, draw_l2_e, 2, 1, 0 },
+    [MENU_L2_E3] = { MENU_L2_E2, MENU_L2_E4, MENU_L3_E3, draw_l2_e, 3, 1, 0 },
+    [MENU_L2_E4] = { MENU_L2_E3, MENU_L2_E5, MENU_L3_E4, draw_l2_e, 4, 1, 0 },
+    [MENU_L2_E5] = { MENU_L2_E4, MENU_L2_E6, MENU_L3_E5, draw_l2_e, 5, 1, 0 },
+    [MENU_L2_E6] = { MENU_L2_E5, MENU_L2_E1, MENU_L1_E,  draw_l2_e, 6, 1, 0 }, // ESC
 
-    //��3��
-    {37,37,37,7, (*fun_a31)},
-    {38,38,38,8, (*fun_a32)},
-    {39,39,39,9, (*fun_a33)},
-    {40,40,40,10,(*fun_a34)},
-    {41,41,41,11,(*fun_a35)},
+    // ---- Level 3 leaf nodes: is_static=0 (live telemetry) --------
+    // A group: Path 1 operations
+    [MENU_L3_A1] = { MENU_L3_A1, MENU_L3_A1, MENU_L2_A1, fun_a31,              0, 0, 0 },
+    [MENU_L3_A2] = { MENU_L3_A2, MENU_L3_A2, MENU_L2_A2, fun_a32,              0, 0, 0 },
+    [MENU_L3_A3] = { MENU_L3_A3, MENU_L3_A3, MENU_L2_A3, fun_a33,              0, 0, 0 },
+    [MENU_L3_A4] = { MENU_L3_A4, MENU_L3_A4, MENU_L2_A4, fun_a34,              0, 0, 0 },
+    [MENU_L3_A5] = { MENU_L3_A5, MENU_L3_A5, MENU_L2_A5, draw_not_implemented, 0, 0, 0 },
 
-    {42,42,42,13,(*fun_b31)},
-    {43,43,43,14,(*fun_b32)},
-    {44,44,44,15,(*fun_b33)},
-    {45,45,45,16,(*fun_b34)},
-    {46,46,46,17,(*fun_b35)},
+    // B group: Path 2 operations
+    [MENU_L3_B1] = { MENU_L3_B1, MENU_L3_B1, MENU_L2_B1, fun_b31,              0, 0, 0 },
+    [MENU_L3_B2] = { MENU_L3_B2, MENU_L3_B2, MENU_L2_B2, fun_b32,              0, 0, 0 },
+    [MENU_L3_B3] = { MENU_L3_B3, MENU_L3_B3, MENU_L2_B3, fun_b33,              0, 0, 0 },
+    [MENU_L3_B4] = { MENU_L3_B4, MENU_L3_B4, MENU_L2_B4, fun_b34,              0, 0, 0 },
+    [MENU_L3_B5] = { MENU_L3_B5, MENU_L3_B5, MENU_L2_B5, draw_not_implemented, 0, 0, 0 },
 
-    {47,47,47,19,(*fun_c31)},
-    {48,48,48,20,(*fun_c32)},
-    {49,49,49,21,(*fun_c33)},
-    {50,50,50,22,(*fun_c34)},
-    {51,51,51,23,(*fun_c35)},
+    // C group: Path 3 operations
+    [MENU_L3_C1] = { MENU_L3_C1, MENU_L3_C1, MENU_L2_C1, fun_c31,              0, 0, 0 },
+    [MENU_L3_C2] = { MENU_L3_C2, MENU_L3_C2, MENU_L2_C2, fun_c32,              0, 0, 0 },
+    [MENU_L3_C3] = { MENU_L3_C3, MENU_L3_C3, MENU_L2_C3, fun_c33,              0, 0, 0 },
+    [MENU_L3_C4] = { MENU_L3_C4, MENU_L3_C4, MENU_L2_C4, fun_c34,              0, 0, 0 },
+    [MENU_L3_C5] = { MENU_L3_C5, MENU_L3_C5, MENU_L2_C5, draw_not_implemented, 0, 0, 0 },
 
-    {52,52,52,25,(*fun_d31)},
-    {53,53,53,26,(*fun_d32)},
-    {54,54,54,27,(*fun_d33)},
-    {55,55,55,28,(*fun_d34)},
-    {56,56,56,29,(*fun_d35)},
+    // D group: 测试模块 — L3 leaf pages
+    [MENU_L3_D1] = { MENU_L3_D1, MENU_L3_D1, MENU_L2_D1, fun_d31, 0, 0, 0 },
+    [MENU_L3_D2] = { MENU_L3_D2, MENU_L3_D2, MENU_L2_D2, fun_d32, 0, 0, 0 },
+    [MENU_L3_D3] = { MENU_L3_D3, MENU_L3_D3, MENU_L2_D3, fun_d33, 0, 0, 0 },
+    [MENU_L3_D4] = { MENU_L3_D4, MENU_L3_D4, MENU_L2_D4, fun_d34, 0, 0, 0 },
+    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35, 0, 0, 0 },
 
-    {57,57,57,31,(*fun_e31)},
-    {58,58,58,32,(*fun_e32)},
-    {59,59,59,33,(*fun_e33)},
-    {60,60,60,34,(*fun_e34)},
-    {61,61,61,35,(*fun_e35)},
+    // E group: Jump control leaf pages
+    [MENU_L3_E1] = { MENU_L3_E1, MENU_L3_E1, MENU_L2_E1, fun_e31, 0, 0, 0 },
+    [MENU_L3_E2] = { MENU_L3_E2, MENU_L3_E2, MENU_L2_E2, fun_e32, 0, 0, 0 },
+    [MENU_L3_E3] = { MENU_L3_E3, MENU_L3_E3, MENU_L2_E3, fun_e33, 0, 0, 0 },
+    [MENU_L3_E4] = { MENU_L3_E4, MENU_L3_E4, MENU_L2_E4, fun_e34, 0, 0, 0 },
+    [MENU_L3_E5] = { MENU_L3_E5, MENU_L3_E5, MENU_L2_E5, fun_e35, 0, 0, 0 },
 };
 
+// ============================================================
+// Data-Driven Draw Functions
+// ============================================================
+// These 6 thin wrappers replace 36 copy-paste functions from the
+// original code. Each per-group wrapper reads the cursor position
+// from the current table entry and delegates to draw_menu_items().
+// The label tables are compile-time constants in .rodata — no
+// runtime string duplication.
 
-void Menu(void)//�˵�����
+// ---- Core: draws a 6-row menu page (rows 1-6) -------------------
+//   items[0..count-1] = row labels (row 1..count)
+//   row count+1..5 get "ESC", row 6 always gets "ESC"
+//   The "->" cursor indicator is drawn on the row matching `cursor`.
+static void draw_menu_items(const char *items[], uint8 count, uint8 cursor,
+                            const char *title)
 {
-                uint8 key1_event;
-                uint8 key2_event;
-                uint8 key3_event;
-                uint32 interrupt_state;
-
-                interrupt_state = interrupt_global_disable();
-                key1_event = key1_flag;
-                key2_event = key2_flag;
-                key3_event = key3_flag;
-                key1_flag = 0;
-                key2_flag = 0;
-                key3_flag = 0;
-                interrupt_global_enable(interrupt_state);
-
-                if(key1_event)
-                {
-
-                    func_index = table_display[func_index].up;    //���Ϸ�
-                    BUZZER_check(50);
-                }
-                if(key2_event)
-                {
-
-                    func_index = table_display[func_index].down;    //���·�
-                     BUZZER_check(50);
-
-                }
-                if(key3_event)
-                {
-
-                    func_index = table_display[func_index].enter;    //ȷ��
-                    BUZZER_check(50);
-
-                }
-
-
-            if (func_index != last_index)
-            {
-                current_operation_index = table_display[func_index].current_operation;
-
-                ips200_clear();
-                (*current_operation_index)();//ִ�е�ǰ��������
-                last_index = func_index;
-
-            }
-            else
-            {
-                (*current_operation_index)();//ִ�е�ǰ��������
-            }
-  }
-
-
-///*********��0��***********/
-void fun_0(void)
-{
-
-
-//    show_rgb565_image(0,16*5, (const uint16 *)gImage_ORRN, 240, 135, 240, 135, 0);
-    ips200_show_string(100,300,"Designed_by_WMCA");
-
-
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////��һ��///////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_a1(void)
-{
-
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_b1(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-
-
-}
-
-void fun_c1(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-
-
-}
-
-void fun_d1(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "GO");                ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "JUMP");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_e1(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "JUMP");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_f1(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////�ڶ���///////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_a21(void)//
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a22(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a23(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a24(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a25(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-void fun_a26(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_b21(void)
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Clear");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b22(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b23(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1,"Record");               ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b24(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");               ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b25(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b26(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_c21(void)
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,  "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c22(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,  "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c23(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c24(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c25(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,"SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c26(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,"SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_d21(void)
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d22(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d23(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d24(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d25(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d26(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_e21(void)
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e22(void)
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e23(void)
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e24(void)
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e25(void)
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e26(void)
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Trigger");                ips200_show_string(8*23, 16*19, "Jump");
-    ips200_show_string(20, 16*2, "Config");
-    ips200_show_string(20, 16*3, "Abort");
-    ips200_show_string(20, 16*4, "Default");
-    ips200_show_string(20, 16*5, "Status");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////������///////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_a31(void)//��Ŀһ���
-{
-    ips_show_string(8*0, 16*0, "P1 recording....");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    uint8 i;
+    ips_clear();
+    for (i = 1; i <= 6; i++)
     {
-        Init_Nag_Path(1);             // ��ʼ��·��1
-        N.Nag_SystemRun_Index = 1;     // �����ߵ�¼��
-        once_flag = 1;
+        if (i == cursor)
+            ips_show_string(0, 16 * i, "->");
+        ips_show_string(20, 16 * i, (i <= count) ? items[i - 1] : "ESC");
     }
-
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
+    ips_show_string(8 * 23, 16 * 19, title);
 }
 
-void fun_a32(void)//��Ŀ�����
+// ---- Level 1 wrapper: selects variant based on cursor position ----
+//   Cursor 4 or 5 → "JUMP" variant; others → "E" variant.
+static void draw_l1_menu(void)
 {
- ips_show_string(8*0, 16*0, "P1 SAVE....");
+    key_table *e = &table_dispaly[func_index];
+    const char **items = (e->cursor == 4 || e->cursor == 5) ? page_l1_jump
+                                                              : page_l1_items;
+    draw_menu_items(items, 5, e->cursor, "Page_1");
+}
 
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+// ---- Level 2 group A wrapper ------------------------------------
+static void draw_l2_a(void)
+{
+    draw_menu_items(page_l2_a, 5, table_dispaly[func_index].cursor, "Page_2");
+}
+
+// ---- Level 2 group B wrapper: cursor 1 shows "Clear" ------------
+static void draw_l2_b(void)
+{
+    const char **items = (table_dispaly[func_index].cursor == 1) ? page_l2_b_clear
+                                                                  : page_l2_b;
+    draw_menu_items(items, 5, table_dispaly[func_index].cursor, "Page_2");
+}
+
+// ---- Level 2 groups C / D / E wrappers --------------------------
+static void draw_l2_c(void)
+{
+    draw_menu_items(page_l2_c, 5, table_dispaly[func_index].cursor, "Page_2");
+}
+
+static void draw_l2_d(void)
+{
+    draw_menu_items(page_l2_test, 5, table_dispaly[func_index].cursor, "Test");
+}
+
+static void draw_l2_e(void)
+{
+    draw_menu_items(page_l2_e, 5, table_dispaly[func_index].cursor, "Jump");
+}
+
+// ---- Level 0: Welcome / splash screen ---------------------------
+static void fun_0(void)
+{
+    ips_show_string(100, 300, "Designed_by_WMCA");
+}
+
+// ---- Fallback for unimplemented leaf nodes -----------------------
+static void draw_not_implemented(void)
+{
+    ips_clear();
+    ips_show_string(8 * 6, 16 * 4, "Not Implemented");
+}
+
+// ============================================================
+// Menu() — Core Dispatch Engine
+// ============================================================
+// Called every super-loop iteration from main_cm7_0.c.
+// Key events are set asynchronously by the 5ms PIT ISR (key_scan).
+//
+// Three-phase logic per frame:
+//   1. Read key flags → update func_index from state table.
+//   2. If func_index changed:
+//      a. Reset init_flag of the PREVIOUS node (enables re-entry).
+//      b. Execute the new node's draw callback.
+//   3. If func_index unchanged:
+//      a. Static pages (is_static=1): skip redraw (save CPU/SPI).
+//      b. Dynamic pages (is_static=0): continuous redraw (telemetry).
+void Menu(void)
+{
+    // ---- Phase 1: key-to-index translation -----------------------
+    if (key1_flag) { func_index = table_dispaly[func_index].up;    key1_clear(); }
+    if (key2_flag) { func_index = table_dispaly[func_index].down;  key2_clear(); }
+    if (key3_flag) { func_index = table_dispaly[func_index].enter; key3_clear(); }
+
+    // ---- Phase 2: page transition --------------------------------
+    if (func_index != last_index)
     {
-        if (N.Nag_SystemRun_Index == 1)
+        // Reset init_flag of the node being left so re-entry
+        // triggers a fresh one-shot initialization.
+        // Guard: last_index == MENU_COUNT on first frame (sentinel).
+        if (last_index < MENU_COUNT)
         {
-            N.End_f = 1;  // ��ֹ�ߵ����У�ֹͣ�ɼ�
+            table_dispaly[last_index].init_flag = 0;
         }
-        once_flag = 1;
+        current_operation_index = table_dispaly[func_index].draw;
+        (*current_operation_index)();
+        last_index = func_index;
     }
-
+    // ---- Phase 3: same-page refresh ------------------------------
+    else
+    {
+        // Static menu pages don't need redraw — only dynamic
+        // telemetry pages (recording, replay, jump status) do.
+        if (!table_dispaly[func_index].is_static)
+        {
+            (*current_operation_index)();
+        }
+    }
 }
 
-void fun_a33(void)//��Ŀ��
+// ============================================================
+// Level 3 — Group A: Navigation Path 1
+// ============================================================
+// Each function follows the same pattern:
+//   - Check e->init_flag: if 0, run one-shot init and set to 1.
+//   - Display live telemetry (every frame).
+//   Menu() resets init_flag to 0 when the user navigates away,
+//   so re-entering the page triggers fresh initialization.
+
+// fun_a31: Path 1 — Start Recording
+//   Sets Nag_SystemRun_Index=1 to begin logging trajectory data.
+//   Displays real-time distance, yaw angle, and save index.
+void fun_a31(void)
 {
- 
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-       Init_Nag_Path(1);             // ѡ��·��1
-        N.Nag_SystemRun_Index = 2;     // ����
-        fuxian = 1;                    // �켣������
+        Init_Nag_Path(1);
+        N.Nag_SystemRun_Index = 1;          // Enter recording mode
+        e->init_flag = 1;
+    }
+    ips_show_string(8 * 0, 16 * 0, "P1 recording....");
+    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
+}
+
+// fun_a32: Path 1 — Save (Stop Recording)
+//   Sets N.End_f=1 to finalize the recorded trajectory.
+void fun_a32(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        e->init_flag = 1;
+    }
+    ips_show_string(8 * 0, 16 * 0, "P1 SAVE....");
+}
+
+// fun_a33: Path 1 — Replay
+//   Sets Nag_SystemRun_Index=2 to enter replay mode.
+//   Displays PID output values, yaw, angle run, and navigation index.
+void fun_a33(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        Init_Nag_Path(1);
+        N.Nag_SystemRun_Index = 2;          // Enter replay mode
+        fuxian = 1;                          // Enable trajectory tracking
         target_speed = user_set_speed;
-        once_flag = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*0, "P1 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+    ips_show_string(8 * 0, 16 * 0, "P1 Replay");
+    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
+    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
+    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
 }
 
-void fun_a34(void)//��Ŀ��
+// fun_a34: Path 1 — Clear
+//   Erases Path 1 flash pages and zeroes the save index in the meta page.
+//   Then re-initializes Path 1 to a fresh state.
+void fun_a34(void)
 {
-    ips_show_string(8*0, 16*0, "P1 Clear...");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        // ����·��1������Flashҳ
-        for (uint8 page = NAG_PATH1_END; page <= NAG_PATH1_START; page++)
+        uint8 page;
+        // Erase all flash pages in Path 1 range ---------------
+        for (page = NAG_PATH1_END; page <= NAG_PATH1_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        // ���Ԫ����ҳ��·��1��Save_index
+        // Zero Path 1 save index in meta page ----------------
         flash_buffer_clear();
         flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 0].uint32_type = 0;  // ·��1 Save_index����
+        flash_union_buffer[MaxSize + 0].uint32_type = 0;   // offset 0 = Path 1
         if (flash_check(0, NAG_META_PAGE))
             flash_erase_page(0, NAG_META_PAGE);
         flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
         flash_buffer_clear();
 
-        Init_Nag_Path(1);  // ���³�ʼ��
-        once_flag = 1;
+        Init_Nag_Path(1);                   // Re-init to clean state
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*2, "P1 Data Cleared!");
+    ips_show_string(8 * 0, 16 * 2, "P1 Data Cleared!");
 }
 
+// ============================================================
+// Level 3 — Group B: Navigation Path 2
+// ============================================================
+// Identical structure to Group A but operates on Path 2.
+// flash_union_buffer offset is MaxSize+1 (Path 2's save index).
 
-void fun_a35(void)//ǿ���������
+void fun_b31(void)  // Path 2 — Start Recording
 {
-
-}
-
-void fun_b31(void)
-{
-    ips_show_string(8*0, 16*0, "P2 recording....");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        Init_Nag_Path(2);             // ��ʼ��·��2
-        N.Nag_SystemRun_Index = 1;     // �����ߵ�¼��
-        once_flag = 1;
+        Init_Nag_Path(2);
+        N.Nag_SystemRun_Index = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
-
-
+    ips_show_string(8 * 0, 16 * 0, "P2 recording....");
+    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
 }
 
-void fun_b32(void)
+void fun_b32(void)  // Path 2 — Save
 {
-ips_show_string(8*0, 16*0, "P2 SAVE....");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == 1)
-        {
-            N.End_f = 1;
-        }
-        once_flag = 1;
+        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        e->init_flag = 1;
     }
-
-
+    ips_show_string(8 * 0, 16 * 0, "P2 SAVE....");
 }
 
-void fun_b33(void)
+void fun_b33(void)  // Path 2 — Replay
 {
-static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        Init_Nag_Path(2);               // ѡ��·��2
-        N.Nag_SystemRun_Index = 2;     // ����
+        Init_Nag_Path(2);
+        N.Nag_SystemRun_Index = 2;
         fuxian = 1;
         target_speed = user_set_speed;
-        once_flag = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*0, "P2 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+    ips_show_string(8 * 0, 16 * 0, "P2 Replay");
+    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
+    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
+    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
 }
 
-
-
-
-void fun_b34(void)
+void fun_b34(void)  // Path 2 — Clear
 {
-   ips_show_string(8*0, 16*0, "P2 Clear...");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        for (uint8 page = NAG_PATH2_END; page <= NAG_PATH2_START; page++)
+        uint8 page;
+        for (page = NAG_PATH2_END; page <= NAG_PATH2_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
         flash_buffer_clear();
         flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 1].uint32_type = 0;  // ·��2 Save_index����
+        flash_union_buffer[MaxSize + 1].uint32_type = 0;   // offset 1 = Path 2
         if (flash_check(0, NAG_META_PAGE))
             flash_erase_page(0, NAG_META_PAGE);
         flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
         flash_buffer_clear();
 
         Init_Nag_Path(2);
-        once_flag = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*2, "P2 Data Cleared!");
-
-
+    ips_show_string(8 * 0, 16 * 2, "P2 Data Cleared!");
 }
 
-void fun_b35(void)
+// ============================================================
+// Level 3 — Group C: Navigation Path 3
+// ============================================================
+// Identical structure to Groups A/B but operates on Path 3.
+// flash_union_buffer offset is MaxSize+2.
+
+void fun_c31(void)  // Path 3 — Start Recording
 {
-
-
-
-}
-
-void fun_c31(void)
-{
-  ips_show_string(8*0, 16*0, "P3 recording....");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        Init_Nag_Path(3);             // ��ʼ��·��3
-        N.Nag_SystemRun_Index = 1;     // �����ߵ�¼��
-        once_flag = 1;
+        Init_Nag_Path(3);
+        N.Nag_SystemRun_Index = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
-
+    ips_show_string(8 * 0, 16 * 0, "P3 recording....");
+    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
 }
 
-void fun_c32(void)
+void fun_c32(void)  // Path 3 — Save
 {
-  ips_show_string(8*0, 16*0, "P3 SAVE....");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == 1)
-        {
-            N.End_f = 1;
-        }
-        once_flag = 1;
+        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        e->init_flag = 1;
     }
-
+    ips_show_string(8 * 0, 16 * 0, "P3 SAVE....");
 }
 
-void fun_c33(void)
+void fun_c33(void)  // Path 3 — Replay
 {
-  static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-      Init_Nag_Path(3);             // ѡ��·��3
-        N.Nag_SystemRun_Index = 2;     // ����
+        Init_Nag_Path(3);
+        N.Nag_SystemRun_Index = 2;
         fuxian = 1;
         target_speed = user_set_speed;
-        once_flag = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*0, "P3 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+    ips_show_string(8 * 0, 16 * 0, "P3 Replay");
+    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
+    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
+    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
+    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
 }
 
-
-
-void fun_c34(void)
+void fun_c34(void)  // Path 3 — Clear
 {
- ips_show_string(8*0, 16*0, "P3 Clear...");
-
-    static uint8 once_flag = 0;
-    if (once_flag == 0)
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        for (uint8 page = NAG_PATH3_END; page <= NAG_PATH3_START; page++)
+        uint8 page;
+        for (page = NAG_PATH3_END; page <= NAG_PATH3_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
         flash_buffer_clear();
         flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 2].uint32_type = 0;  // ·��3 Save_index����
+        flash_union_buffer[MaxSize + 2].uint32_type = 0;   // offset 2 = Path 3
         if (flash_check(0, NAG_META_PAGE))
             flash_erase_page(0, NAG_META_PAGE);
         flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
         flash_buffer_clear();
 
         Init_Nag_Path(3);
-        once_flag = 1;
+        e->init_flag = 1;
     }
-
-    ips_show_string(8*0, 16*2, "P3 Data Cleared!");
-
+    ips_show_string(8 * 0, 16 * 2, "P3 Data Cleared!");
 }
 
+// ============================================================
+// Level 3 — Group E: Jump Control
+// ============================================================
+// These functions interact with the 7-state jump FSM in Body_ctrl.c.
+// Unlike the navigation path functions, they don't use init_flag
+// because their operations are fire-and-forget (trigger, abort, reset).
 
-void fun_c35(void)
+void fun_e31(void)  // Jump — Trigger
 {
-
-
-}
-
-void fun_d31(void)
-{
-
-
-}
-
-void fun_d32(void)
-{
-
-
-}
-
-void fun_d33(void)
-{
-
-
-}
-
-void fun_d34(void)
-{
-
-
-}
-
-
-void fun_d35(void)
-{
-
-
-}
-
-void fun_e31(void)
-{
-    ips_show_string(8*0, 16*0, "Jump Trigger");
-    jump_trigger();
-    ips_show_string(8*0, 16*2, "Result:");
+    ips_show_string(8 * 0, 16 * 0, "Jump Trigger");
+    jump_trigger();                          // Start the jump sequence
+    ips_show_string(8 * 0, 16 * 2, "Result:");
     if (jump_cfg.state != JUMP_IDLE)
     {
-        ips_show_string(8*0, 16*3, "OK - Jump Started");
+        ips_show_string(8 * 0, 16 * 3, "OK - Jump Started");
     }
     else
     {
-        ips_show_string(8*0, 16*3, "FAIL - Check State");
+        ips_show_string(8 * 0, 16 * 3, "FAIL - Check State");
     }
 }
 
-void fun_e32(void)
+void fun_e32(void)  // Jump — Config Display (read-only)
 {
-    ips_show_string(8*0, 16*0, "Jump Config");
-    ips_show_string(8*0, 16*1, "ChargeT");  ips_show_int(8*10, 16*1, jump_cfg.charge_ticks, 5);
-    ips_show_string(8*0, 16*2, "ChargeD");  ips_show_int(8*10, 16*2, jump_cfg.charge_duty, 5);
-    ips_show_string(8*0, 16*3, "AirTmout"); ips_show_int(8*10, 16*3, jump_cfg.airborne_timeout, 5);
-    ips_show_string(8*0, 16*4, "Boost");    ips_show_float(8*10, 16*4, jump_cfg.forward_motor_boost, 5, 1);
-    ips_show_string(8*0, 16*5, "TiltAbort"); ips_show_float(8*10, 16*5, jump_cfg.max_tilt_abort, 5, 1);
-    ips_show_string(8*0, 16*6, "AirAccTh"); ips_show_float(8*10, 16*6, jump_cfg.airborne_acc_threshold, 5, 2);
-    ips_show_string(8*0, 16*7, "LandAccTh"); ips_show_float(8*10, 16*7, jump_cfg.landing_acc_threshold, 5, 2);
-    ips_show_string(8*0, 16*8, "VisionEn"); ips_show_int(8*10, 16*8, jump_cfg.vision_jump_enable, 5);
+    ips_show_string(8 * 0, 16 * 0, "Jump Config");
+    ips_show_string(8 * 0, 16 * 1, "ChargeT");   ips_show_int(8 * 10, 16 * 1, jump_cfg.charge_ticks, 5);
+    ips_show_string(8 * 0, 16 * 2, "ChargeD");   ips_show_int(8 * 10, 16 * 2, jump_cfg.charge_duty, 5);
+    ips_show_string(8 * 0, 16 * 3, "AirTmout");  ips_show_int(8 * 10, 16 * 3, jump_cfg.airborne_timeout, 5);
+    ips_show_string(8 * 0, 16 * 4, "Boost");     ips_show_float(8 * 10, 16 * 4, jump_cfg.forward_motor_boost, 5, 1);
+    ips_show_string(8 * 0, 16 * 5, "TiltAbort"); ips_show_float(8 * 10, 16 * 5, jump_cfg.max_tilt_abort, 5, 1);
+    ips_show_string(8 * 0, 16 * 6, "AirAccTh");  ips_show_float(8 * 10, 16 * 6, jump_cfg.airborne_acc_threshold, 5, 2);
+    ips_show_string(8 * 0, 16 * 7, "LandAccTh"); ips_show_float(8 * 10, 16 * 7, jump_cfg.landing_acc_threshold, 5, 2);
+    ips_show_string(8 * 0, 16 * 8, "VisionEn");  ips_show_int(8 * 10, 16 * 8, jump_cfg.vision_jump_enable, 5);
 }
 
-void fun_e33(void)
+void fun_e33(void)  // Jump — Abort (emergency stop)
 {
-    ips_show_string(8*0, 16*0, "Jump Abort");
+    ips_show_string(8 * 0, 16 * 0, "Jump Abort");
     jump_abort();
-    ips_show_string(8*0, 16*2, "Aborted - IDLE");
+    ips_show_string(8 * 0, 16 * 2, "Aborted - IDLE");
 }
 
-void fun_e34(void)
+void fun_e34(void)  // Jump — Reset to Defaults
 {
-    ips_show_string(8*0, 16*0, "Jump Default");
+    ips_show_string(8 * 0, 16 * 0, "Jump Default");
     jump_config_default();
-    ips_show_string(8*0, 16*2, "Reset to Defaults");
+    ips_show_string(8 * 0, 16 * 2, "Reset to Defaults");
 }
 
-void fun_e35(void)
+void fun_e35(void)  // Jump — Live Status
 {
-    ips_show_string(8*0, 16*0, "Jump Status");
-    ips_show_string(8*0, 16*1, "State:");   ips_show_int(8*10, 16*1, jump_cfg.state, 3);
-    ips_show_string(8*0, 16*2, "Elapsed:"); ips_show_int(8*10, 16*2, jump_cfg.elapsed, 5);
-    ips_show_string(8*0, 16*3, "Count:");   ips_show_int(8*10, 16*3, jump_cfg.jump_count, 5);
-    ips_show_string(8*0, 16*4, "PeakAcc:"); ips_show_float(8*10, 16*4, jump_cfg.peak_acc_magnitude, 5, 2);
-    ips_show_string(8*0, 16*5, "CanTrig:"); ips_show_int(8*10, 16*5, jump_can_trigger(), 3);
+    ips_show_string(8 * 0, 16 * 0, "Jump Status");
+    ips_show_string(8 * 0, 16 * 1, "State:");   ips_show_int(8 * 10, 16 * 1, jump_cfg.state, 3);
+    ips_show_string(8 * 0, 16 * 2, "Elapsed:"); ips_show_int(8 * 10, 16 * 2, jump_cfg.elapsed, 5);
+    ips_show_string(8 * 0, 16 * 3, "Count:");   ips_show_int(8 * 10, 16 * 3, jump_cfg.jump_count, 5);
+    ips_show_string(8 * 0, 16 * 4, "PeakAcc:"); ips_show_float(8 * 10, 16 * 4, jump_cfg.peak_acc_magnitude, 5, 2);
+    ips_show_string(8 * 0, 16 * 5, "CanTrig:"); ips_show_int(8 * 10, 16 * 5, jump_can_trigger(), 3);
 }
 
+// ============================================================
+// Level 3 — Group D: 测试模块
+// ============================================================
+
+// fun_d31: 直行100m综合测试
+//   进入时触发 straight_test_start()，init_flag=1 后持续刷新显示
+//   测试中显示距离+偏差；完成后显示侧偏+航向漂移+评级
+void fun_d31(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        straight_test_start();
+        e->init_flag = 1;
+    }
+
+    ips_show_string(8 * 0, 16 * 0, "Straight 100m");
+
+    switch (straight_test.state)
+    {
+    case STRAIGHT_LOCKING:
+        ips_show_string(8 * 0, 16 * 2, "Locking heading...");
+        ips_show_string(8 * 0, 16 * 3, "GPS:");
+        if (gnss.antenna_direction_state == 1)
+            ips_show_float(8 * 10, 16 * 3, gnss.antenna_direction, 5, 1);
+        else if (gnss.state == 1)
+            ips_show_float(8 * 10, 16 * 3, gnss.direction, 5, 1);
+        else
+            ips_show_string(8 * 10, 16 * 3, "NO GPS");
+        break;
+
+    case STRAIGHT_RUNNING:
+        ips_show_string(8 * 0, 16 * 2, "Dist:");     ips_show_float(8 * 10, 16 * 2, straight_test.distance * 0.01f, 5, 1);
+        ips_show_string(8 * 0, 16 * 3, "Heading:");  ips_show_float(8 * 10, 16 * 3, straight_test.target_heading, 5, 1);
+        ips_show_string(8 * 0, 16 * 4, "Yaw:");      ips_show_float(8 * 10, 16 * 4, (float)Nag_Yaw, 5, 1);
+        ips_show_string(8 * 0, 16 * 5, "Corr:");     ips_show_float(8 * 10, 16 * 5, straight_test.steer_correction, 5, 1);
+        ips_show_string(8 * 0, 16 * 6, "Sat:");      ips_show_int(8 * 10, 16 * 6, gnss.satellite_used, 3);
+        break;
+
+    case STRAIGHT_DONE:
+        ips_show_string(8 * 0, 16 * 2, "=== RESULT ===");
+        ips_show_string(8 * 0, 16 * 3, "Lateral:");   ips_show_float(8 * 10, 16 * 3, straight_test.lateral_deviation, 5, 2);
+        ips_show_string(8 * 0, 16 * 4, "Drift:");     ips_show_float(8 * 10, 16 * 4, straight_test.yaw_drift, 5, 1);
+        ips_show_string(8 * 0, 16 * 5, "Rating:");    ips_show_int(8 * 10, 16 * 5, straight_test.rating, 1);
+        ips_show_string(8 * 12, 16 * 5, "/5");
+        ips_show_string(8 * 0, 16 * 7, "Press <- to exit");
+        break;
+
+    default:
+        break;
+    }
+}
+
+void fun_d32(void) { draw_not_implemented(); }  // Circle — 待实现
+void fun_d33(void) { draw_not_implemented(); }  // Square — 待实现
+void fun_d34(void) { draw_not_implemented(); }  // S-Curve — 待实现
+void fun_d35(void) { draw_not_implemented(); }  // Custom — 待实现

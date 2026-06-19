@@ -2,6 +2,8 @@
 #include "gnss_cache.h"
 
 // 上次保存时的 sys_times（避免频繁擦写 Flash）
+#define CACHE_WORDS ((sizeof(gnss_cache_struct) + 3) / 4)
+
 static uint32 last_save_tick = 0;
 static gnss_cache_struct cache_buffer;
 
@@ -12,7 +14,7 @@ static gnss_cache_struct cache_buffer;
 bool gnss_cache_load(gnss_cache_struct *cache)
 {
     flash_buffer_clear();
-    flash_read_page_to_buffer(0, GNSS_CACHE_PAGE, sizeof(gnss_cache_struct));
+    flash_read_page_to_buffer(0, GNSS_CACHE_PAGE, CACHE_WORDS);
 
     // 从缓冲区复制到结构体（逐字节，因为 flash_union_buffer 是 union 类型）
     uint8 *src = (uint8 *)flash_union_buffer;
@@ -56,7 +58,7 @@ void gnss_cache_save(const gnss_cache_struct *cache)
     }
 
     flash_erase_page(0, GNSS_CACHE_PAGE);
-    flash_write_page_from_buffer(0, GNSS_CACHE_PAGE, sizeof(gnss_cache_struct));
+    flash_write_page_from_buffer(0, GNSS_CACHE_PAGE, CACHE_WORDS);
     flash_buffer_clear();
 }
 

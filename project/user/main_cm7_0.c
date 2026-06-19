@@ -61,6 +61,7 @@ int main(void)
     flash_init();
     Init_Nag();
 
+    yaw_fusion_init();
     gnss_init(TAU1201);
     gnss_auto_start();
 

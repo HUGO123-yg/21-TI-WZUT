@@ -10,7 +10,7 @@ int16   balance_duty_max  = 3000;
 int16   turn_duty_max     = 3000;
 float   target_speed      = 0;
 int     run_state         = 1;
-uint32  sys_times         = 0;
+volatile uint32  sys_times         = 0;
 int     STOP_FLAG         = 1;
 int32   car_distance      = 0;
 int16   left_motor_duty   = 0;
@@ -551,6 +551,121 @@ void car_motor_control(void)
 }
 
 //================================================================================
+// 直行100m综合测试模块
+//================================================================================
+straight_test_struct straight_test = { STRAIGHT_IDLE, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false };
+
+void straight_test_start(void)
+{
+    memset(&straight_test, 0, sizeof(straight_test));
+    straight_test.state = STRAIGHT_LOCKING;
+}
+
+void straight_test_stop(void)
+{
+    straight_test.state = STRAIGHT_IDLE;
+    target_speed = 0;
+    straight_test.completed = false;
+}
+
+void straight_test_run(void)
+{
+    if (straight_test.state == STRAIGHT_IDLE)
+        return;
+
+    switch (straight_test.state)
+    {
+    case STRAIGHT_LOCKING:
+        // 尝试获取GPS航向
+        if (gnss.antenna_direction_state == 1)
+        {
+            straight_test.target_heading = gnss.antenna_direction;
+            straight_test.gps_available  = true;
+        }
+        else if (gnss.state == 1 && gnss.speed > 1.0f)
+        {
+            straight_test.target_heading = gnss.direction;
+            straight_test.gps_available  = true;
+        }
+        else if (gnss.state == 1 && gnss.satellite_used >= 6)
+        {
+            // GPS已定位但无法获取航向（静止时无运动航向，无双天线）
+            // 以当前IMU yaw作为临时参考
+            straight_test.target_heading = roll_balance_cascade.posture_value.yaw;
+            straight_test.gps_available  = false;
+        }
+        else
+        {
+            return;  // GPS未就绪，继续等待
+        }
+
+        // 航向获取成功 → 记录起点，进入运行
+        straight_test.start_lat     = (float)gnss.latitude;
+        straight_test.start_lon     = (float)gnss.longitude;
+        straight_test.start_mileage = (Car.mileage_L + Car.mileage_R) * 0.5f;
+        straight_test.state         = STRAIGHT_RUNNING;
+        target_speed = 200.0f;
+        STOP_FLAG    = 1;
+        break;
+
+    case STRAIGHT_RUNNING:
+    {
+        // 距离计数
+        float cur_mileage = (Car.mileage_L + Car.mileage_R) * 0.5f;
+        straight_test.distance = cur_mileage - straight_test.start_mileage;
+
+        // 航向偏差PID → steer_correction
+        float yaw_error = angle_plan((float)(roll_balance_cascade.posture_value.yaw - straight_test.target_heading));
+        pid_control(&track_cascade.track_cycle, 0.0f, yaw_error);
+        straight_test.steer_correction = track_cascade.track_cycle.out;
+
+        // 100m到达 → 停止
+        if (straight_test.distance >= 9900.0f)  // 99m提前减速，编码器误差补偿
+        {
+            target_speed = 0;
+            if (straight_test.distance >= 10000.0f)
+            {
+                straight_test.state = STRAIGHT_DONE;
+                // 计算侧偏
+                float end_lat  = (float)gnss.latitude;
+                float end_lon  = (float)gnss.longitude;
+                float d_total  = (float)get_two_points_distance(
+                    straight_test.start_lat, straight_test.start_lon,
+                    end_lat, end_lon);
+                float azimuth  = (float)get_two_points_azimuth(
+                    straight_test.start_lat, straight_test.start_lon,
+                    end_lat, end_lon);
+                float heading_ref = (straight_test.target_heading > 180.0f)
+                    ? straight_test.target_heading - 360.0f : straight_test.target_heading;
+                float angle_diff = (float)angle_plan((double)(azimuth - heading_ref));
+                straight_test.lateral_deviation = d_total * sin(angle_diff * 0.01745329f);
+
+                // 航向漂移
+                straight_test.yaw_drift = (float)angle_plan((double)(
+                    roll_balance_cascade.posture_value.yaw - straight_test.target_heading));
+
+                // 评分
+                float abs_dev = (straight_test.lateral_deviation > 0)
+                    ? straight_test.lateral_deviation : -straight_test.lateral_deviation;
+                if      (abs_dev < 0.3f) straight_test.rating = 5;
+                else if (abs_dev < 0.6f) straight_test.rating = 4;
+                else if (abs_dev < 1.0f) straight_test.rating = 3;
+                else if (abs_dev < 2.0f) straight_test.rating = 2;
+                else                     straight_test.rating = 1;
+
+                straight_test.completed = true;
+                STOP_FLAG = 0;
+            }
+        }
+        break;
+    }
+
+    case STRAIGHT_DONE:
+        break;  // 保持停止状态，等待Menu查询结果后reset
+    }
+}
+
+//================================================================================
 // PIT 回调 — 1ms 控制级联
 //================================================================================
 void pit_call_back(void)
@@ -560,6 +675,7 @@ void pit_call_back(void)
     imu660rb_get_gyro();
     imu660rb_get_acc();
     quaternion_module_calculate(&roll_balance_cascade);
+    yaw_fusion_update();
 
     if (sys_times > 500)
     {
@@ -581,6 +697,7 @@ void pit_call_back(void)
 
         car_state_calculate();
         car_steer_control();
+        straight_test_run();
 
         if (sys_times % 20 == 0)
         {
@@ -595,9 +712,14 @@ void pit_call_back(void)
 
         if (STOP_FLAG == 1)
         {
+            int16 steer_adj = (int16)(N.Final_Out * 10);
+            if (straight_test.state == STRAIGHT_RUNNING)
+            {
+                steer_adj += (int16)straight_test.steer_correction;
+            }
             CYT2_D_motor_ctrl(
-                -(int16)roll_balance_cascade.angular_speed_cycle.out + N.Final_Out * 10,
-                -(int16)roll_balance_cascade.angular_speed_cycle.out - N.Final_Out * 10);
+                -(int16)roll_balance_cascade.angular_speed_cycle.out + steer_adj,
+                -(int16)roll_balance_cascade.angular_speed_cycle.out - steer_adj);
         }
         else
         {
