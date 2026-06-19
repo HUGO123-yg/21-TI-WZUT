@@ -110,12 +110,14 @@
 
 #include "Common_peripherals.h"
 #include "small_driver_uart_control.h"
+#include "Body_ctrl.h"
 #include "Imu.h"
 #include "Flash.h"
 #include "gnss_cache.h"
 #include "yaw_fusion.h"
-#include "Body_ctrl.h"
 #include "Menu.h"
+#include "Stair_test.h"
+#include "Rotation.h"
 
 
 

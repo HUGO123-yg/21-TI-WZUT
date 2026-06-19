@@ -34,9 +34,8 @@
 // Menu Page Label Tables (const → .rodata, shared across nodes)
 // ============================================================
 
-// ---- Level 1: two variants — "E" vs "JUMP" on rows 4-5 ----------
-static const char *page_l1_items[] = { "GO", "B", "C", "TEST", "E"    };
-static const char *page_l1_jump[]  = { "GO", "B", "C", "TEST", "JUMP" };
+// ---- Level 1: 主菜单 4 项 (GO/B/C/TEST) ----------
+static const char *page_l1_items[] = { "GO", "B", "C", "TEST" };
 
 // ---- Level 2 group A: Record / SAVE / Reproduce -----------------
 static const char *page_l2_a[] = { "Record", "SAVE", "Reproduce", "A_4", "A_5" };
@@ -49,7 +48,7 @@ static const char *page_l2_b_clear[] = { "Record", "SAVE", "Reproduce", "Clear",
 static const char *page_l2_c[] = { "Record", "SAVE", "Reproduce", "Mt9v03_text", "C_5" };
 
 // ---- Level 2 group D: 测试模块（直行100m等） --------------------
-static const char *page_l2_test[] = { "Straight", "Circle", "Square", "S-Curve", "Custom" };
+static const char *page_l2_test[] = { "Straight", "StairSeq", "StairTest", "JumpTest", "Rotation" };
 
 // ---- Level 2 group E: Jump subsystem commands --------------------
 static const char *page_l2_e[] = { "Trigger", "Config", "Abort", "Default", "Status" };
@@ -85,7 +84,7 @@ void fun_a31(void); void fun_a32(void); void fun_a33(void); void fun_a34(void);
 void fun_b31(void); void fun_b32(void); void fun_b33(void); void fun_b34(void);
 void fun_c31(void); void fun_c32(void); void fun_c33(void); void fun_c34(void);
 void fun_e31(void); void fun_e32(void); void fun_e33(void); void fun_e34(void); void fun_e35(void);
-void fun_d31(void); void fun_d32(void); void fun_d33(void); void fun_d34(void); void fun_d35(void);
+void fun_d31(void); void fun_d32_stair_seq(void); void fun_d33_stair_test(void); void fun_d34_jump_test(void); void fun_d35_rotation(void);
 
 // ============================================================
 // Menu State Table — 62 entries, indexed by menu_node_t enum
@@ -110,8 +109,8 @@ static key_table table_dispaly[MENU_COUNT] =
     [MENU_L1_B] = { MENU_L1_A, MENU_L1_C, MENU_L2_B1, draw_l1_menu, 2, 1, 0 },
     [MENU_L1_C] = { MENU_L1_B, MENU_L1_D, MENU_L2_C1, draw_l1_menu, 3, 1, 0 },
     [MENU_L1_D] = { MENU_L1_C, MENU_L1_E, MENU_L2_D1, draw_l1_menu, 4, 1, 0 },
-    [MENU_L1_E] = { MENU_L1_D, MENU_L1_F, MENU_L2_E1, draw_l1_menu, 5, 1, 0 },
-    [MENU_L1_F] = { MENU_L1_E, MENU_L1_A, MENU_ROOT,  draw_l1_menu, 6, 1, 0 }, // ESC → root
+    [MENU_L1_E] = { MENU_L1_D, MENU_L1_F, MENU_ROOT,  draw_l1_menu, 5, 1, 0 }, // ESC
+    [MENU_L1_F] = { MENU_L1_E, MENU_L1_A, MENU_ROOT,  draw_l1_menu, 6, 1, 0 }, // ESC
 
     // ---- Level 2 group A: Navigation path 1 submenu --------------
     [MENU_L2_A1] = { MENU_L2_A6, MENU_L2_A2, MENU_L3_A1, draw_l2_a, 1, 1, 0 },
@@ -177,10 +176,10 @@ static key_table table_dispaly[MENU_COUNT] =
 
     // D group: 测试模块 — L3 leaf pages
     [MENU_L3_D1] = { MENU_L3_D1, MENU_L3_D1, MENU_L2_D1, fun_d31, 0, 0, 0 },
-    [MENU_L3_D2] = { MENU_L3_D2, MENU_L3_D2, MENU_L2_D2, fun_d32, 0, 0, 0 },
-    [MENU_L3_D3] = { MENU_L3_D3, MENU_L3_D3, MENU_L2_D3, fun_d33, 0, 0, 0 },
-    [MENU_L3_D4] = { MENU_L3_D4, MENU_L3_D4, MENU_L2_D4, fun_d34, 0, 0, 0 },
-    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35, 0, 0, 0 },
+    [MENU_L3_D2] = { MENU_L3_D2, MENU_L3_D2, MENU_L2_D2, fun_d32_stair_seq, 0, 0, 0 },
+    [MENU_L3_D3] = { MENU_L3_D3, MENU_L3_D3, MENU_L2_D3, fun_d33_stair_test, 0, 0, 0 },
+    [MENU_L3_D4] = { MENU_L3_D4, MENU_L3_D4, MENU_L2_D4, fun_d34_jump_test, 0, 0, 0 },
+    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35_rotation, 0, 0, 0 },
 
     // E group: Jump control leaf pages
     [MENU_L3_E1] = { MENU_L3_E1, MENU_L3_E1, MENU_L2_E1, fun_e31, 0, 0, 0 },
@@ -217,14 +216,9 @@ static void draw_menu_items(const char *items[], uint8 count, uint8 cursor,
     ips_show_string(8 * 23, 16 * 19, title);
 }
 
-// ---- Level 1 wrapper: selects variant based on cursor position ----
-//   Cursor 4 or 5 → "JUMP" variant; others → "E" variant.
 static void draw_l1_menu(void)
 {
-    key_table *e = &table_dispaly[func_index];
-    const char **items = (e->cursor == 4 || e->cursor == 5) ? page_l1_jump
-                                                              : page_l1_items;
-    draw_menu_items(items, 5, e->cursor, "Page_1");
+    draw_menu_items(page_l1_items, 4, table_dispaly[func_index].cursor, "Page_1");
 }
 
 // ---- Level 2 group A wrapper ------------------------------------
@@ -679,7 +673,57 @@ void fun_d31(void)
     }
 }
 
-void fun_d32(void) { draw_not_implemented(); }  // Circle — 待实现
-void fun_d33(void) { draw_not_implemented(); }  // Square — 待实现
-void fun_d34(void) { draw_not_implemented(); }  // S-Curve — 待实现
-void fun_d35(void) { draw_not_implemented(); }  // Custom — 待实现
+// D2: 连续上台阶 (StairSeq) — 3 跳序列
+void fun_d32_stair_seq(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0) { stair_seq_start();    e->init_flag = 1; }
+    stair_seq_run();
+    if (stair_seq_is_done())  func_index = MENU_L1_D;
+}
+
+// D3: 单次上台阶 (StairTest)
+void fun_d33_stair_test(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0) { stair_single_start(); e->init_flag = 1; }
+    stair_single_run();
+    if (stair_single_is_done()) func_index = MENU_L1_D;
+}
+
+// D4: 平地跳跃测试 (JumpTest) — 逻辑在 Stair_test.c
+void fun_d34_jump_test(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0) { stair_jump_start();   e->init_flag = 1; }
+    stair_jump_run();
+    if (stair_jump_is_done())  func_index = MENU_L1_D;
+}
+void fun_d35_rotation(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        rotation_start(ROT_CW, 1500, 5000);
+        e->init_flag = 1;
+    }
+    ips_show_string(8 * 0, 16 * 0, "Rotation Test");
+    ips_show_string(8 * 0, 16 * 2, "Dir:");
+
+    if (rotation.state == ROT_RUNNING)
+    {
+        ips_show_string(8 * 10, 16 * 2, (rotation.dir == ROT_CW) ? "CW " : "CCW");
+        ips_show_string(8 * 0, 16 * 3, "Duty:");   ips_show_int(8 * 10, 16 * 3, rotation.turn_duty, 5);
+        ips_show_string(8 * 0, 16 * 4, "Time:");   ips_show_int(8 * 10, 16 * 4, (int16)(rotation.duration_ms - rotation.elapsed), 5);
+        ips_show_string(8 * 0, 16 * 5, "Yaw:");    ips_show_float(8 * 10, 16 * 5, roll_balance_cascade.posture_value.yaw, 5, 1);
+    }
+    else if (rotation.state == ROT_DONE)
+    {
+        rotation_stop();
+        func_index = MENU_L1_D;
+    }
+    else
+    {
+        ips_show_string(8 * 10, 16 * 2, "IDLE");
+    }
+}

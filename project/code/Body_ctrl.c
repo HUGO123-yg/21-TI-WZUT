@@ -432,12 +432,12 @@ void car_steer_control(void)
         // AIRBORNE — IMU 检测失重，等待着陆
         //----------------------------------------------------------------
         case JUMP_AIRBORNE:
-            // 保持中立舵位，不干预飞行姿态
-            // hold neutral steer, don't interfere with flight attitude
-            steer_duty_set(&steer_1, steer_1.center_num);
-            steer_duty_set(&steer_2, steer_2.center_num);
-            steer_duty_set(&steer_3, steer_3.center_num);
-            steer_duty_set(&steer_4, steer_4.center_num);
+            // 腿部微伸 — 预着陆位，增大落地缓冲行程
+            // legs slightly extended — pre-landing position for impact absorption
+            steer_duty_set(&steer_1, steer_1.center_num + jump_cfg.preland_duty);
+            steer_duty_set(&steer_2, steer_2.center_num - jump_cfg.preland_duty);
+            steer_duty_set(&steer_3, steer_3.center_num - jump_cfg.preland_duty);
+            steer_duty_set(&steer_4, steer_4.center_num + jump_cfg.preland_duty);
 
             // 大角度倾斜 → 强制进入着陆
             // excessive tilt → force landing
