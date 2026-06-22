@@ -160,7 +160,7 @@
                 </option>
                 <option>
                     <name>OCImagesUse2</name>
-                    <state>1</state>
+                    <state>0</state>
                 </option>
                 <option>
                     <name>OCImagesUse3</name>
@@ -196,7 +196,7 @@
                 </option>
                 <option>
                     <name>OCDownloadExtraImage</name>
-                    <state>1</state>
+                    <state>0</state>
                 </option>
                 <option>
                     <name>OCAttachSlave</name>

@@ -1,14 +1,14 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-06-18
-**Commit:** no commits yet
+**Generated:** 2026-06-19
+**Commit:** 229c6c3
 **Branch:** main
 **SDK:** SEEKFREE ZF Open Source Library V3.10.1 (GPLv3)
-**IDE:** IAR Embedded Workbench for ARM 9.40.1
+**IDE:** IAR EWARM 9.40.1 (primary) + ARM GNU GCC 15.2 (Makefile-based, macOS/Linux)
 
 ## OVERVIEW
 
-Self-balancing smart car firmware for **Infineon Traveo II CYT4BB** (dual Cortex-M7 + CM0+). Bare-metal super-loop with interrupt-driven callbacks. Built exclusively with IAR EWARM — no Makefile, CMake, or CLI build path.
+Self-balancing smart car firmware for **Infineon Traveo II CYT4BB** (dual Cortex-M7 + CM0+). Bare-metal super-loop with interrupt-driven callbacks. Dual build: IAR EWARM (Windows) + ARM GNU GCC via Makefile (macOS/Linux). An Infineon ModusToolbox project skeleton exists in `ZHX_Software/` for alternative IDE support.
 
 ## STRUCTURE
 
@@ -21,10 +21,15 @@ test3/
 │   ├── zf_device/        # External device drivers — IMUs, displays, cameras, wireless
 │   ├── zf_components/    # Higher-level components (SeekFree assistant protocol)
 │   └── doc/              # Version history, GPLv3 license
-└── project/
-    ├── code/             # Application logic — balance control, IMU fusion, menu, flash
-    ├── user/             # Entry points — main() for CM7_0/CM7_1, ISRs
-    └── iar/              # IAR IDE config — .ewp/.eww, linker script (.icf), debug XML
+├── project/
+│   ├── code/             # Application logic — balance, IMU fusion, menu, flash, rotation, stair
+│   ├── user/             # Entry points — main() for CM7_0/CM7_1, ISRs
+│   ├── iar/              # IAR IDE config — .ewp/.eww, linker script (.icf), debug XML
+│   └── gcc/              # GCC linker script (linker_cm7_0.ld)
+├── docs/path_planning/   # Technical docs: PID calibration, sensor fusion, algorithm selection
+├── ZHX_Software/         # Infineon ModusToolbox project (alternative IDE, experimental)
+├── build/                # GCC build output (cm7_0.elf/.hex/.bin)
+└── Makefile              # ARM GNU GCC build (macOS/Linux)
 ```
 
 ## ENTRY POINTS
@@ -75,6 +80,7 @@ ISRs registered at runtime via `interrupt_init()` → `Cy_SysInt_SetSystemIrqVec
 | Change typedefs or common utils | `libraries/zf_common/` | Central hub — changes affect EVERY layer |
 | Open project in IAR | `project/iar/cyt4bb7.eww` | Workspace links both CM7_0 + CM7_1 |
 | Understand memory layout | `project/iar/icf/linker_directives_tviibh.icf` | 3-core layout: CM0+, CM7_0, CM7_1 |
+| GCC memory layout | `project/gcc/linker_cm7_0.ld` | Converted from IAR .icf |
 | Version history | `libraries/doc/version.txt` | Chinese changelog v3.0.0 → v3.10.1 |
 | License text | `libraries/doc/GPL3_permission_statement.txt` | ⚠️ Not at repo root |
 | Boot sequence | `libraries/sdk/common/src/startup/iar/startup_cm7.s` → `startup.c` → `main()` | |
@@ -82,7 +88,12 @@ ISRs registered at runtime via `interrupt_init()` → `Cy_SysInt_SetSystemIrqVec
 | Interrupt dispatch (SDK) | `libraries/sdk/tviibh4m/src/interrupts/cy_interrupt_map.c` | NVIC → CpuUserInt → Cy_SystemIrqUserTable dispatch |
 | Runtime ISR registration | `libraries/zf_common/zf_common_interrupt.c` | `interrupt_init()` binds handlers at runtime |
 | IAR project workspace | `project/iar/cyt4bb7.eww` | Dual-core workspace (CM7_0 + CM7_1) |
-| Linker script | `project/iar/icf/linker_directives_tviibh.icf` | 3-core memory layout (CM0+/CM7_0/CM7_1) |
+| Linker script (IAR) | `project/iar/icf/linker_directives_tviibh.icf` | 3-core memory layout (CM0+/CM7_0/CM7_1) |
+| In-place rotation control | `project/code/Rotation.c/h` | Differential + servo counter-steer, elapsed-based decay |
+| Stair climbing test | `project/code/Stair_test.c/h` | 3 modes: flat jump, single step, sequential (3-step) |
+| Path planning docs | `docs/path_planning/` | PID calibration, optical flow fusion, algorithm selection |
+| GCC build system | `Makefile` | ARM GNU GCC 15.2, macOS/Linux, builds CM7_0 only |
+| ModusToolbox project | `ZHX_Software/` | Infineon IDE alternative (experimental) |
 
 ## CONVENTIONS
 
@@ -134,15 +145,19 @@ All flows upward. No circular dependencies. `zf_common_headfile.h` is the sole i
 - **Chinese filename** — `project/code/日志.txt` breaks cross-platform tooling. Rename.
 - **Stale header** — `zf_device_config.h` still references MM32F327X-G9P in its license block. Correct to CYT4BB.
 - **Precompiled blobs** — `zf_device_config.a`/`.lib` in `libraries/zf_device/` with no build source. GPLv3 requires source.
-- **Commented-out code** — Large dead code blocks in `Body_ctrl.c`, `main_cm7_0.c`, `Imu.c`. Delete or extract.
+- **Commented-out code** — Large dead code blocks in `Imu.h` (20 lines), `Common_peripherals.h` (9 lines), `main_cm7_0.c` (6 lines), `日志.txt` (25 lines). Delete or extract.
 - **Magic numbers** — Raw values in servo/balance calculations. Use named constants.
-- **`int` for booleans** — `int jump_flag`, `int run_state` instead of `bool`. stdbool.h is available.
+- **`int` for booleans** — `int run_state`, `int STOP_FLAG` instead of `bool`. stdbool.h is available.
 - **No `const` on read-only params** — Pointer parameters that should be `const` are almost never marked.
 - **No centralized `config.h`** — Compile-time settings scattered across multiple headers.
-- **Libraries depend on project code** — `zf_common_headfile.h` (in `libraries/`) includes `Common_peripherals.h`, `Imu.h`, etc. (from `project/code/`). Reverse dependency violation.
-- **Duplicated constant** — `WHEEL_CIRCUMFERENCE (6.4f)` in `Body_ctrl.c` vs `wheel_diameter (6.4f)` in `Common_peripherals.h`. Same value, different names — change one, miss the other.
+- **Libraries depend on project code** — `zf_common_headfile.h` (in `libraries/`) includes 10 project headers. Reverse dependency violation.
+- **Duplicated constant** — `WHEEL_CIRCUMFERENCE (6.4f)` in `Body_ctrl.c` vs `wheel_diameter (6.4f)` in `Common_peripherals.h`. Same value, different names.
 - **`double` in float-only project** — `angle_plan()` in `Flash.c` returns `double`. FPU is single-precision only. Use `float`.
-- **`uint8_t` inconsistency** — `Menu.c` uses `uint8_t` (via stdint.h) in 12 places instead of the project-standard `uint8` from `zf_common_typedef.h`.
+- **`uint8_t` inconsistency** — `Common_peripherals.c` mixes `int16` and `int16_t` in `CYT2_D_motor_ctrl()` signature.
+- **Buffer proximity risk** — `flash_union_buffer[MaxSize + N]` in `Flash.c`/`Menu.c` accesses indices 500-502 with only 9 elements of headroom in 512-element buffer.
+- **Macro hiding variable access** — `#define Nag_Yaw roll_balance_cascade.posture_value.yaw` in `Flash.h` obscures pointer chain.
+- **Header includes monolithic header** — `Flash.h:3` includes `zf_common_headfile.h`. Headers should include only what they need.
+- **Orphaned ZHX_Software/** — ModusToolbox BSP duplicate not part of IAR project. Remove or archive.
 
 ## COMPLEXITY HOTSPOTS
 
@@ -164,8 +179,10 @@ All flows upward. No circular dependencies. `zf_common_headfile.h` is the sole i
 | `Flash.c` | 397 | Navigation storage |
 | `cm7_1_isr.c` | 440 | ISR stubs (unused) |
 | `cm7_0_isr.c` | 432 | ISR implementations |
+| `Stair_test.c` | 353 | Stair climbing test |
 | `Common_peripherals.c` | 264 | HW abstraction |
 | `small_driver_uart_control.c` | 184 | Motor UART protocol |
+| `Rotation.c` | 86 | In-place rotation control |
 
 ## COMMANDS
 
@@ -179,6 +196,15 @@ All flows upward. No circular dependencies. `zf_common_headfile.h` is the sole i
 # No CLI build available — IAR IDE only.
 # For CI (Windows self-hosted runner):
 # "C:\Program Files\IAR Systems\...\common\bin\iarbuild.exe" project\iar\project_config\cyt4bb7_cm_7_0.ewp -build Debug
+
+# ─── GCC Build (macOS/Linux) ──────────────────────────────────────
+# Prerequisites: ARM GNU Toolchain 15.2+ from developer.arm.com
+# Install to ~/arm-gnu-toolchain/ or set ARM_TC_PATH in Makefile
+
+make              # Build CM7_0 firmware → build/cm7_0.elf/.hex/.bin
+make clean        # Remove build artifacts
+make flash        # Flash via J-Link/OpenOCD (customize CFLASH_CMD)
+make size         # Print section sizes
 ```
 
 ## NOTES
@@ -188,3 +214,9 @@ All flows upward. No circular dependencies. `zf_common_headfile.h` is the sole i
 - **No test framework** — Testing is manual on-target via `zf_assert()` + debug UART (115200 baud). Assert prints file/line then halts.
 - **IAR path hardcodes**: The auto-generated `.cspy.bat` contains absolute Windows paths. Ignore for portability.
 - **Chinese comments**: All documentation and comments are in Chinese. Code identifiers are in English.
+- **Dual build system**: IAR EWARM 9.40.1 (Windows, primary) + ARM GNU GCC 15.2 via Makefile (macOS/Linux). GCC builds CM7_0 only, uses `project/gcc/linker_cm7_0.ld`.
+- **GCC build output**: `build/cm7_0.elf/.hex/.bin/.map` — add to `.gitignore`.
+- **ZHX_Software/**: Infineon ModusToolbox project for the same MCU. Experimental/alternative IDE. Not part of IAR or GCC builds.
+- **New application modules**: `Rotation.c/h` (原地旋转控制 — differential + counter-steer), `Stair_test.c/h` (上台阶测试 — 3 modes: flat jump/single step/sequential 3-step).
+- **New docs**: `docs/path_planning/` — position PID calibration, optical flow fusion, path planning algorithm selection.
+- **`zf_device_config.c`** now has source — previously only `.a`/`.lib` blobs existed. GPLv3 compliance partial fix.

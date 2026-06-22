@@ -1,8 +1,6 @@
 #include "zf_common_headfile.h"
 #include <math.h>
 
-#define IMU_MODE 1
-
 #if IMU_MODE
 
 #define RAD2DEG 57.29577951f

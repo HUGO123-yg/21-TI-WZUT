@@ -1,3 +1,9 @@
+#ifndef CODE_IMU_H_
+#define CODE_IMU_H_
+
+#ifndef IMU_MODE
+#define IMU_MODE 1
+#endif
 
 #if IMU_MODE
 
@@ -142,4 +148,6 @@ void quaternion_module_init (cascade_value_struct *cascade_value);
 void balance_cascade_init (void);
 
 
-#endif
+#endif /* IMU_MODE */
+
+#endif /* CODE_IMU_H_ */

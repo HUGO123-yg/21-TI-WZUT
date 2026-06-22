@@ -13,6 +13,8 @@ project/code/
 ├── Flash.c/h               # Navigation path recording/playback (3 paths, flash paging)
 ├── Common_peripherals.c/h  # BUZZER, keys, steer servos (4 channels), Car_param_t speed/mileage
 ├── small_driver_uart_control.c/h  # UART motor driver protocol (460800 baud, 7-byte frames)
+├── Rotation.c/h             # In-place rotation: differential + servo counter-steer, elapsed decay
+├── Stair_test.c/h           # Stair climbing: 3 modes (flat jump, single step, sequential 3-step)
 └── 日志.txt                # Chinese-named dev log (cross-platform breakage risk)
 ```
 
@@ -26,6 +28,8 @@ project/code/
 | `Flash.c` | 397 | Navigation flash storage |
 | `Common_peripherals.c` | 264 | HW abstraction |
 | `small_driver_uart_control.c` | 184 | Motor UART protocol |
+| `Stair_test.c` | 353 | Stair climbing test |
+| `Rotation.c` | 86 | In-place rotation control |
 
 ## DEPENDENCY GRAPH
 
@@ -57,12 +61,14 @@ Menu.c/h                            # Top-level UI — depends on ALL others
 
 | File | Key Contents |
 |------|-------------|
-| `Body_ctrl.c/h` | `pit_call_back()` — 1ms/5ms control cascade. `car_state_calculate()` — tilt guard, PID soft-start. Steer `steer_control()` calls. Externs: `target_speed`, `left_motor_duty`, `right_motor_duty`, `STOP_FLAG` |
+| `Body_ctrl.c/h` | `pit_call_back()` — 1ms/5ms control cascade. `car_state_calculate()` — tilt guard, PID soft-start. Steer `steer_control()` calls. Externs: `target_speed`, `left_motor_duty`, `right_motor_duty`, `STOP_FALG` |
 | `Imu.c/h` | `quaternion_module_calculate()` — gyro+accel fusion → rotation matrix → roll/pitch/yaw. Static `arctan2()`, `arcsin()`, `arctan1()` helpers. `pid_control()` (position) + `pid_control_incremental()`. |
 | `Menu.c/h` | `key_table table[100]` — each entry: current/up/down/enter + function pointer. ~60+ callback functions (`fun_a1`..`fun_e35`). `Menu()` dispatcher reads key events. |
 | `Flash.c/h` | 3-path navigation storage (pages 3-95). `Nag` struct with mileage, angle, save index. `Nag_System()` — run, save, or GPS replay. |
 | `Common_peripherals.c/h` | Pin defs (`BUZZER_PIN`, `KEY1`-`KEY4`, `STEER_1`-`4_PWM`). `Car_param_t` — speed_L/R, mileage_L/R. `steer_control_struct` per servo. |
 | `small_driver_uart_control.c/h` | UART2 at 460800. `small_driver_set_duty()` / `small_driver_get_speed()` — 7-byte protocol to external motor driver. |
+| `Rotation.c/h` | `rotation_start(dir, max_duty, duration_ms)` — initiates rotation. `rotation_run()` — called every 1ms from `pit_call_back`, drives differential motor duty + servo counter-steer with elapsed-based decay. States: ROT_IDLE, ROT_RUNNING, ROT_DONE. |
+| `Stair_test.c/h` | Three test modes via centralized `#define STAIR_*` tunable parameters. `stair_jump_start/run/is_done()` — flat ground jump. `stair_single_start/run/is_done()` — single step. `stair_seq_start/run/is_done()` — sequential 3-step. `stair_abort()` — emergency stop all modes. |
 
 ## CONVENTIONS
 
@@ -74,7 +80,7 @@ Menu.c/h                            # Top-level UI — depends on ALL others
 
 ## NOTES
 
-- **IMU selection**: `#define IMU_MODE 1` at `Imu.c:3` gates compilation via `#if IMU_MODE` in both `Imu.c` and `Imu.h`. Current active: imu660rb. Alternatives (commented out): imu660ra / imu963ra with per-sensor scale factors.
+- **IMU selection**: `Imu.h` defaults `IMU_MODE` to `1` when the build does not define it, then gates declarations and implementation via `#if IMU_MODE`. Current active: imu660rb. Alternatives (commented out): imu660ra / imu963ra with per-sensor scale factors.
 - **Duplicated constant**: `Body_ctrl.c` defines `#define WHEEL_CIRCUMFERENCE (6.4f)` — same value as `wheel_diameter` in `Common_peripherals.h`. Change one, miss the other.
 - **`日志.txt`**: Chinese-named dev log file. Rename to `devlog.txt` for cross-platform git compatibility.
 - **No test infra**: All testing is on-target via debug UART and `zf_assert()`.

@@ -28,7 +28,7 @@
 ## ANTI-PATTERNS
 
 - **Stale MCU name**: `zf_device_config.h` license block still reads MM32F327X-G9P. Should be CYT4BB.
-- **Precompiled blobs**: `zf_device_config.a` and `zf_device_config.lib` ship without source. GPLv3 requires source distribution. Risk if redistributing.
+- **Precompiled blobs**: `zf_device_config.a`/`.lib` still ship as precompiled binaries. Source now exists (`zf_device_config.c`) but is not yet integrated into the build — blobs should be removed and built from source for full GPLv3 compliance.
 - **Garbled docs**: `外设文件说明.txt` is encoded in GBK and renders as mojibake on UTF-8 systems. Rename or re-encode.
 - **No const qualifiers**: Read-only pointer params in driver functions are almost never marked `const`.
 

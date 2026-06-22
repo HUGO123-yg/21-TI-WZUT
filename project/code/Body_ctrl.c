@@ -275,7 +275,6 @@ void car_steer_control(void)
 {
     int16 steer_location_offset[4] = {0};
     int16 steer_target_offset[4]   = {0};
-    int16 steer_output_duty        = 0;
     float steer_balance_angle      = 0;
     float steer_balance_angle_count_local = 0;
     float steer_output_duty_filter = 0;
@@ -587,6 +586,9 @@ void straight_test_run(void)
 
     switch (straight_test.state)
     {
+    case STRAIGHT_IDLE:
+        return;
+
     case STRAIGHT_LOCKING:
         // 尝试获取GPS航向
         if (gnss.antenna_direction_state == 1)
