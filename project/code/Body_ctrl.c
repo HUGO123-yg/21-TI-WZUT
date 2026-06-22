@@ -3,6 +3,9 @@
 #define WHEEL_CIRCUMFERENCE  (6.4f)
 #define ACC_CONV_FACTOR      (4098.0f)   // imu660rb LSB/g
 #define SPEED_TO_ANGLE_GAIN  (0.003f)    // 速度环输出 → 角度目标 (度/out单位)
+#define JUMP_PREPARE_DUTY    (500)
+#define JUMP_MOTOR_BOOST_MIN (0)
+#define JUMP_MOTOR_BOOST_MAX (1200)
 
 //================================================================================
 // 全局变量
@@ -17,6 +20,7 @@ int32   car_distance      = 0;
 int16   left_motor_duty   = 0;
 int16   right_motor_duty  = 0;
 int     jump_time         = 0;          // 保留兼容，由 jump_cfg.elapsed 替代
+static int16 jump_motor_boost_duty = 0;
 
 //================================================================================
 // 跳跃配置 — 默认值
@@ -89,6 +93,40 @@ static float compute_tilt_angle(void)
 }
 
 //================================================================================
+// 跳跃舵机物理偏移换算
+//================================================================================
+static int16 jump_steer_duty_from_offset(const steer_control_struct *control_data, int16 physical_offset)
+{
+    int16 duty = control_data->center_num + physical_offset * control_data->steer_dir;
+    return func_limit_ab(duty, 0, 10000);
+}
+
+static void jump_set_x_leg_offset(int16 offset)
+{
+    // offset 使用统一物理方向，再按每个舵机 steer_dir 换算为 PWM，避免左右腿方向写反。
+    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1,  offset));
+    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, -offset));
+    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, -offset));
+    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4,  offset));
+}
+
+static void jump_set_all_leg_offset(int16 offset)
+{
+    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1, offset));
+    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, offset));
+    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, offset));
+    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4, offset));
+}
+
+static void jump_set_neutral_leg_offset(void)
+{
+    steer_duty_set(&steer_1, steer_1.center_num);
+    steer_duty_set(&steer_2, steer_2.center_num);
+    steer_duty_set(&steer_3, steer_3.center_num);
+    steer_duty_set(&steer_4, steer_4.center_num);
+}
+
+//================================================================================
 // 跳跃触发
 //================================================================================
 void jump_trigger(void)
@@ -114,6 +152,7 @@ void jump_abort(void)
 {
     jump_cfg.state   = JUMP_IDLE;
     jump_cfg.elapsed = 0;
+    jump_motor_boost_duty = 0;
 
     // 立即恢复 PID
     roll_balance_cascade.angle_cycle.p = jump_cfg.stored_p_angle;
@@ -166,6 +205,7 @@ void jump_config_default(void)
     jump_cfg.vision_max_dist       = 800.0f;
     jump_cfg.state                 = JUMP_IDLE;
     jump_cfg.elapsed               = 0;
+    jump_motor_boost_duty          = 0;
 }
 
 //================================================================================
@@ -364,16 +404,15 @@ void car_steer_control(void)
         jump_cfg.peak_acc_magnitude = acc_mag;
     }
 
+    jump_motor_boost_duty = 0;
+
     switch (jump_cfg.state)
     {
         //----------------------------------------------------------------
         // PREPARE — 降低重心，前倾蓄势
         //----------------------------------------------------------------
         case JUMP_PREPARE:
-            steer_duty_set(&steer_1, steer_1.center_num + 500  * steer_1.steer_dir);
-            steer_duty_set(&steer_2, steer_2.center_num - 500  * steer_2.steer_dir);
-            steer_duty_set(&steer_3, steer_3.center_num - 500  * steer_3.steer_dir);
-            steer_duty_set(&steer_4, steer_4.center_num + 500  * steer_4.steer_dir);
+            jump_set_x_leg_offset(JUMP_PREPARE_DUTY);
 
             if (jump_cfg.elapsed >= jump_cfg.prepare_ticks)
             {
@@ -388,10 +427,7 @@ void car_steer_control(void)
         case JUMP_CHARGE:
         {
             int16 charge = jump_cfg.charge_duty;
-            steer_duty_set(&steer_1, steer_1.center_num + charge);
-            steer_duty_set(&steer_2, steer_2.center_num - charge);
-            steer_duty_set(&steer_3, steer_3.center_num - charge);
-            steer_duty_set(&steer_4, steer_4.center_num + charge);
+            jump_set_x_leg_offset(charge);
 
             // 前进动量：加速充电阶段也保持前倾
             // forward momentum: maintain forward lean during charge
@@ -409,12 +445,13 @@ void car_steer_control(void)
         // LAUNCH — 释放能量 + 电机助推前冲
         //----------------------------------------------------------------
         case JUMP_LAUNCH:
+            jump_motor_boost_duty = func_limit_ab((int16)jump_cfg.forward_motor_boost,
+                                                  JUMP_MOTOR_BOOST_MIN,
+                                                  JUMP_MOTOR_BOOST_MAX);
+
             // 舵机：瞬间释放到中立位
             // steer: snap release to neutral
-            steer_duty_set(&steer_1, steer_1.center_num);
-            steer_duty_set(&steer_2, steer_2.center_num);
-            steer_duty_set(&steer_3, steer_3.center_num);
-            steer_duty_set(&steer_4, steer_4.center_num);
+            jump_set_neutral_leg_offset();
 
             // 前进动量：额外电机推力
             // forward momentum: extra motor boost
@@ -433,10 +470,7 @@ void car_steer_control(void)
         case JUMP_AIRBORNE:
             // 腿部微伸 — 预着陆位，增大落地缓冲行程
             // legs slightly extended — pre-landing position for impact absorption
-            steer_duty_set(&steer_1, steer_1.center_num + jump_cfg.preland_duty);
-            steer_duty_set(&steer_2, steer_2.center_num - jump_cfg.preland_duty);
-            steer_duty_set(&steer_3, steer_3.center_num - jump_cfg.preland_duty);
-            steer_duty_set(&steer_4, steer_4.center_num + jump_cfg.preland_duty);
+            jump_set_all_leg_offset(jump_cfg.preland_duty);
 
             // 大角度倾斜 → 强制进入着陆
             // excessive tilt → force landing
@@ -473,10 +507,10 @@ void car_steer_control(void)
             // 四轮同时内收，吸收冲击
             // all 4 wheels retract inward for impact absorption
             int16 damp = jump_cfg.land_damping_duty;
-            steer_control(&steer_1, -damp * steer_1.steer_dir);
-            steer_control(&steer_2, -damp * steer_2.steer_dir);
-            steer_control(&steer_3, -damp * steer_3.steer_dir);
-            steer_control(&steer_4, -damp * steer_4.steer_dir);
+            steer_control(&steer_1, -damp);
+            steer_control(&steer_2, -damp);
+            steer_control(&steer_3, -damp);
+            steer_control(&steer_4, -damp);
 
             // 前进动量恢复
             target_speed = jump_cfg.stored_speed_target * jump_cfg.speed_recovery_rate;
@@ -494,6 +528,8 @@ void car_steer_control(void)
         //----------------------------------------------------------------
         case JUMP_RECOVER:
         {
+            jump_motor_boost_duty = 0;
+
             // 恢复转向控制
             int16 rate = jump_cfg.land_damping_duty / 2;
             steer_control(&steer_1, func_limit_ab(steer_target_offset[0] - steer_location_offset[0], -rate, rate));
@@ -523,6 +559,7 @@ void car_steer_control(void)
             break;
 
         default:
+            jump_motor_boost_duty = 0;
             break;
     }
 }
@@ -730,7 +767,12 @@ void pit_call_back(void)
 
         if (STOP_FLAG == 1)
         {
-            int16 steer_adj = (int16)(N.Final_Out * 10);
+            int16 steer_adj = (jump_cfg.state == JUMP_IDLE) ? (int16)(N.Final_Out * 10) : 0;
+            int16 motor_base = func_limit_ab(-(int16)roll_balance_cascade.angular_speed_cycle.out
+                                             + jump_motor_boost_duty,
+                                             M_MIN,
+                                             M_MAX);
+
             if (straight_test.state == STRAIGHT_RUNNING)
             {
                 steer_adj += (int16)straight_test.steer_correction;
@@ -743,8 +785,8 @@ void pit_call_back(void)
                 steer_adj += rotation.turn_duty;
             }
             CYT2_D_motor_ctrl(
-                -(int16)roll_balance_cascade.angular_speed_cycle.out + steer_adj,
-                -(int16)roll_balance_cascade.angular_speed_cycle.out - steer_adj);
+                motor_base + steer_adj,
+                motor_base - steer_adj);
         }
         else
         {

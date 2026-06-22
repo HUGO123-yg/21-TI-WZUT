@@ -254,7 +254,7 @@ static void draw_l2_e(void)
 // ---- Level 0: Welcome / splash screen ---------------------------
 static void fun_0(void)
 {
-    ips_show_string(100, 300, "Designed_by_WMCA");
+    ips_show_string(100, 300, "Designed_by_HUGO");
 }
 
 // ---- Fallback for unimplemented leaf nodes -----------------------

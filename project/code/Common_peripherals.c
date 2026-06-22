@@ -211,10 +211,10 @@ void steer_duty_set(steer_control_struct *control_data, int16 duty)
 {
     if(control_data->steer_state)                  // 判断舵机是否处于使能状态
     {
-        // 将输入的占空比限制在 -10000 ~ 10000 范围内，并更新当前位置
-        control_data->now_location = func_limit_ab(duty, -10000, 10000);
+        // PWM duty is unsigned in the low-level driver; clamp before sending.
+        control_data->now_location = func_limit_ab(duty, 0, 10000);
 
-        pwm_set_duty(control_data->pwm_pin, duty); // 设置 PWM 占空比
+        pwm_set_duty(control_data->pwm_pin, control_data->now_location);
     }
 }
 
@@ -231,10 +231,10 @@ void steer_control(steer_control_struct *control_data, int16 move_num)
         // 根据转向方向计算新位置：steer_dir 为 1 时正向偏移，为 -1 时反向偏移
         control_data->now_location = control_data->now_location + (control_data->steer_dir == 1 ? move_num : -move_num);
 
-        // 将新位置限制在 -10000 ~ 10000 范围内
-        control_data->now_location = func_limit_ab(control_data->now_location, -10000, 10000);
+        // PWM duty is unsigned in the low-level driver; clamp before sending.
+        control_data->now_location = func_limit_ab(control_data->now_location, 0, 10000);
 
-        pwm_set_duty(control_data->pwm_pin, control_data->now_location); // 设置 PWM 占空比更新舵机位置
+        pwm_set_duty(control_data->pwm_pin, control_data->now_location);
     }
 }
 
