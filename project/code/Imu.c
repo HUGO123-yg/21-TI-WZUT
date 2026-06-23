@@ -337,9 +337,12 @@ void balance_cascade_init (void)
     roll_balance_cascade.speed_cycle.i    = 0.0f;      // 速度�? I
     roll_balance_cascade.speed_cycle.d    = 0.0f;      // 速度�? D 
     
-    track_cascade.track_cycle.p=10;
-    track_cascade.track_cycle.i=0;
-    track_cascade.track_cycle.d=0;
+    track_cascade.track_cycle.i_value_max = 100.0f;
+    track_cascade.track_cycle.i_value_pro = 0.02f;
+    track_cascade.track_cycle.out_max     = 500.0f;
+    track_cascade.track_cycle.p = 10.0f;
+    track_cascade.track_cycle.i = 0.0f;
+    track_cascade.track_cycle.d = 0.0f;
 
  // 备份�?滚方向的初�?�参�?
     memcpy(&roll_balance_cascade_resave, &roll_balance_cascade, sizeof(roll_balance_cascade_resave));

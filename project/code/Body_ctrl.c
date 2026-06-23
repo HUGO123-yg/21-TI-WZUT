@@ -3,7 +3,10 @@
 #define WHEEL_CIRCUMFERENCE  (6.4f)
 #define ACC_CONV_FACTOR      (4098.0f)   // imu660rb LSB/g
 #define SPEED_TO_ANGLE_GAIN  (0.003f)    // 速度环输出 → 角度目标 (度/out单位)
-#define JUMP_PREPARE_DUTY    (500)
+#define STRAIGHT_TEST_SPEED  (200.0f)
+#define STRAIGHT_SLOWDOWN_CM (9900.0f)
+#define STRAIGHT_TARGET_CM   (10000.0f)
+#define JUMP_PREPARE_RATIO   (0.35f)
 #define JUMP_MOTOR_BOOST_MIN (0)
 #define JUMP_MOTOR_BOOST_MAX (1200)
 
@@ -27,32 +30,33 @@ static int16 jump_motor_boost_duty = 0;
 //================================================================================
 jump_config_struct jump_cfg = {
     // 阶段时长（PIT ticks）
-    .prepare_ticks          = 50,
-    .charge_ticks           = 120,
-    .launch_ticks           = 30,
-    .airborne_timeout       = 300,
-    .landing_ticks          = 80,
+    .prepare_ticks          = 70,
+    .charge_ticks           = 90,
+    .launch_ticks           = 45,
+    .airborne_timeout       = 260,
+    .landing_ticks          = 90,
     .recover_ticks          = 200,
 
     // 舵机占空比偏移
-    .charge_duty            = 2500,
-    .preland_duty           = 1400,
-    .land_damping_duty      = 14,
+    .charge_duty            = 1200,
+    .launch_duty            = 1700,
+    .preland_duty           = 800,
+    .land_damping_duty      = 28,
 
     // 前进动量
     .forward_tilt_target    = 5.0f,
-    .forward_motor_boost    = 500.0f,
+    .forward_motor_boost    = 300.0f,
     .speed_recovery_rate    = 0.3f,
 
     // PID 抑制
-    .airborne_pid_scale     = 0.15f,
+    .airborne_pid_scale     = 0.12f,
     .landing_pid_scale      = 0.3f,
     .recover_pid_ramp_rate  = 0.01f,
 
     // IMU 检测阈值
     .airborne_acc_threshold = 0.3f,
-    .landing_acc_threshold  = 2.5f,
-    .max_tilt_abort         = 45.0f,
+    .landing_acc_threshold  = 1.8f,
+    .max_tilt_abort         = 55.0f,
 
     // 视觉接口
     .vision_jump_trigger    = NULL,
@@ -101,29 +105,25 @@ static int16 jump_steer_duty_from_offset(const steer_control_struct *control_dat
     return func_limit_ab(duty, 0, 10000);
 }
 
-static void jump_set_x_leg_offset(int16 offset)
+static void steer_set_default_pose(void)
 {
-    // offset 使用统一物理方向，再按每个舵机 steer_dir 换算为 PWM，避免左右腿方向写反。
-    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1,  offset));
-    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, -offset));
-    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, -offset));
-    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4,  offset));
+    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1, STEER_1_DEFAULT_OFFSET));
+    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, STEER_2_DEFAULT_OFFSET));
+    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, STEER_3_DEFAULT_OFFSET));
+    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4, STEER_4_DEFAULT_OFFSET));
 }
 
 static void jump_set_all_leg_offset(int16 offset)
 {
-    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1, offset));
-    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, offset));
-    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, offset));
-    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4, offset));
+    steer_duty_set(&steer_1, jump_steer_duty_from_offset(&steer_1, STEER_1_DEFAULT_OFFSET + offset));
+    steer_duty_set(&steer_2, jump_steer_duty_from_offset(&steer_2, STEER_2_DEFAULT_OFFSET + offset));
+    steer_duty_set(&steer_3, jump_steer_duty_from_offset(&steer_3, STEER_3_DEFAULT_OFFSET + offset));
+    steer_duty_set(&steer_4, jump_steer_duty_from_offset(&steer_4, STEER_4_DEFAULT_OFFSET + offset));
 }
 
 static void jump_set_neutral_leg_offset(void)
 {
-    steer_duty_set(&steer_1, steer_1.center_num);
-    steer_duty_set(&steer_2, steer_2.center_num);
-    steer_duty_set(&steer_3, steer_3.center_num);
-    steer_duty_set(&steer_4, steer_4.center_num);
+    steer_set_default_pose();
 }
 
 //================================================================================
@@ -182,24 +182,25 @@ void jump_vision_update(float distance_mm)
 //================================================================================
 void jump_config_default(void)
 {
-    jump_cfg.prepare_ticks         = 50;
-    jump_cfg.charge_ticks          = 120;
-    jump_cfg.launch_ticks          = 30;
-    jump_cfg.airborne_timeout      = 300;
-    jump_cfg.landing_ticks         = 80;
+    jump_cfg.prepare_ticks         = 70;
+    jump_cfg.charge_ticks          = 90;
+    jump_cfg.launch_ticks          = 45;
+    jump_cfg.airborne_timeout      = 260;
+    jump_cfg.landing_ticks         = 90;
     jump_cfg.recover_ticks         = 200;
-    jump_cfg.charge_duty           = 2500;
-    jump_cfg.preland_duty          = 1400;
-    jump_cfg.land_damping_duty     = 14;
+    jump_cfg.charge_duty           = 1200;
+    jump_cfg.launch_duty           = 1700;
+    jump_cfg.preland_duty          = 800;
+    jump_cfg.land_damping_duty     = 28;
     jump_cfg.forward_tilt_target   = 5.0f;
-    jump_cfg.forward_motor_boost   = 500.0f;
+    jump_cfg.forward_motor_boost   = 300.0f;
     jump_cfg.speed_recovery_rate   = 0.3f;
-    jump_cfg.airborne_pid_scale    = 0.15f;
+    jump_cfg.airborne_pid_scale    = 0.12f;
     jump_cfg.landing_pid_scale     = 0.3f;
     jump_cfg.recover_pid_ramp_rate = 0.01f;
     jump_cfg.airborne_acc_threshold = 0.3f;
-    jump_cfg.landing_acc_threshold  = 2.5f;
-    jump_cfg.max_tilt_abort        = 45.0f;
+    jump_cfg.landing_acc_threshold  = 1.8f;
+    jump_cfg.max_tilt_abort        = 55.0f;
     jump_cfg.vision_jump_enable    = 0;
     jump_cfg.vision_min_dist       = 100.0f;
     jump_cfg.vision_max_dist       = 800.0f;
@@ -290,7 +291,7 @@ void car_state_calculate(void)
                 float progress = (float)jump_cfg.elapsed / (float)jump_cfg.recover_ticks;
                 if (progress > 1.0f) progress = 1.0f;
                 pid_scale = jump_cfg.landing_pid_scale
-                          + (1.0f - jump_cfg.landing_pid_scale) * progress * jump_cfg.recover_pid_ramp_rate;
+                          + (1.0f - jump_cfg.landing_pid_scale) * progress;
                 if (pid_scale > 1.0f) pid_scale = 1.0f;
 
                 // 速度目标恢复
@@ -359,26 +360,26 @@ void car_steer_control(void)
     if (rotation.state == ROT_RUNNING)
     {
         // 旋转模式：双腿对称差速，左右两侧获得相反修正
-        steer_target_offset[0] = (int16)( steer_output_duty_filter + steer_balance_angle_count_local);
-        steer_target_offset[1] = (int16)( steer_output_duty_filter - steer_balance_angle_count_local);
-        steer_target_offset[2] = (int16)(-steer_output_duty_filter + steer_balance_angle_count_local);
-        steer_target_offset[3] = (int16)(-steer_output_duty_filter - steer_balance_angle_count_local);
+        steer_target_offset[0] = (int16)(STEER_1_DEFAULT_OFFSET + steer_output_duty_filter + steer_balance_angle_count_local);
+        steer_target_offset[1] = (int16)(STEER_2_DEFAULT_OFFSET + steer_output_duty_filter - steer_balance_angle_count_local);
+        steer_target_offset[2] = (int16)(STEER_3_DEFAULT_OFFSET - steer_output_duty_filter + steer_balance_angle_count_local);
+        steer_target_offset[3] = (int16)(STEER_4_DEFAULT_OFFSET - steer_output_duty_filter - steer_balance_angle_count_local);
     }
     else
     {
-        steer_target_offset[0] = (int16)( steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
-        steer_target_offset[1] = (int16)( steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
-        steer_target_offset[2] = (int16)(-steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
-        steer_target_offset[3] = (int16)(-steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[0] = (int16)(STEER_1_DEFAULT_OFFSET + steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[1] = (int16)(STEER_2_DEFAULT_OFFSET + steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[2] = (int16)(STEER_3_DEFAULT_OFFSET - steer_output_duty_filter - (steer_balance_angle_count_local > 0 ? 0 : steer_balance_angle_count_local));
+        steer_target_offset[3] = (int16)(STEER_4_DEFAULT_OFFSET - steer_output_duty_filter + (steer_balance_angle_count_local < 0 ? 0 : steer_balance_angle_count_local));
     }
 
     if (run_state == 0)
     {
-        // 停机 — 缓慢回中
-        steer_control(&steer_1, func_limit_ab(steer_1.center_num - steer_1.now_location, -1, 1) * steer_1.steer_dir);
-        steer_control(&steer_2, func_limit_ab(steer_2.center_num - steer_2.now_location, -1, 1) * steer_2.steer_dir);
-        steer_control(&steer_3, func_limit_ab(steer_3.center_num - steer_3.now_location, -1, 1) * steer_3.steer_dir);
-        steer_control(&steer_4, func_limit_ab(steer_4.center_num - steer_4.now_location, -1, 1) * steer_4.steer_dir);
+        // 停机 — 缓慢回默认站姿
+        steer_control(&steer_1, func_limit_ab(STEER_1_DEFAULT_OFFSET - steer_location_offset[0], -1, 1));
+        steer_control(&steer_2, func_limit_ab(STEER_2_DEFAULT_OFFSET - steer_location_offset[1], -1, 1));
+        steer_control(&steer_3, func_limit_ab(STEER_3_DEFAULT_OFFSET - steer_location_offset[2], -1, 1));
+        steer_control(&steer_4, func_limit_ab(STEER_4_DEFAULT_OFFSET - steer_location_offset[3], -1, 1));
         return;
     }
 
@@ -412,26 +413,33 @@ void car_steer_control(void)
         // PREPARE — 降低重心，前倾蓄势
         //----------------------------------------------------------------
         case JUMP_PREPARE:
-            jump_set_x_leg_offset(JUMP_PREPARE_DUTY);
+        {
+            float progress = (float)jump_cfg.elapsed / (float)jump_cfg.prepare_ticks;
+            int16 crouch = -(int16)((float)jump_cfg.charge_duty * JUMP_PREPARE_RATIO * progress);
+            jump_set_all_leg_offset(crouch);
+            target_speed = jump_cfg.stored_speed_target;
 
             if (jump_cfg.elapsed >= jump_cfg.prepare_ticks)
             {
                 jump_cfg.state   = JUMP_CHARGE;
                 jump_cfg.elapsed = 0;
             }
+        }
             break;
 
         //----------------------------------------------------------------
-        // CHARGE — X 型压缩储能 + 前倾维持前进动量
+        // CHARGE — 四腿同步压缩储能 + 保持车身稳定
         //----------------------------------------------------------------
         case JUMP_CHARGE:
         {
-            int16 charge = jump_cfg.charge_duty;
-            jump_set_x_leg_offset(charge);
+            float progress = (float)jump_cfg.elapsed / (float)jump_cfg.charge_ticks;
+            int16 start_crouch = -(int16)((float)jump_cfg.charge_duty * JUMP_PREPARE_RATIO);
+            int16 end_crouch   = -jump_cfg.charge_duty;
+            int16 crouch = start_crouch + (int16)((float)(end_crouch - start_crouch) * progress);
+            jump_set_all_leg_offset(crouch);
 
-            // 前进动量：加速充电阶段也保持前倾
-            // forward momentum: maintain forward lean during charge
-            target_speed = jump_cfg.stored_speed_target * (1.0f + jump_cfg.speed_recovery_rate);
+            // 蓄力阶段保持原速度目标，避免起跳前额外加速把车身带倒。
+            target_speed = jump_cfg.stored_speed_target;
 
             if (jump_cfg.elapsed >= jump_cfg.charge_ticks)
             {
@@ -449,15 +457,16 @@ void car_steer_control(void)
                                                   JUMP_MOTOR_BOOST_MIN,
                                                   JUMP_MOTOR_BOOST_MAX);
 
-            // 舵机：瞬间释放到中立位
-            // steer: snap release to neutral
-            jump_set_neutral_leg_offset();
+            // 舵机：从下蹲位快速伸腿，形成向上的冲量。
+            // steer: fast extension from crouch to produce upward impulse.
+            jump_set_all_leg_offset(jump_cfg.launch_duty);
 
             // 前进动量：额外电机推力
             // forward momentum: extra motor boost
-            target_speed = jump_cfg.stored_speed_target + jump_cfg.forward_motor_boost * 0.01f;
+            target_speed = jump_cfg.stored_speed_target + jump_cfg.forward_motor_boost * 0.006f;
 
-            if (jump_cfg.elapsed >= jump_cfg.launch_ticks)
+            if ((jump_cfg.elapsed > 8 && acc_mag < jump_cfg.airborne_acc_threshold)
+             || jump_cfg.elapsed >= jump_cfg.launch_ticks)
             {
                 jump_cfg.state   = JUMP_AIRBORNE;
                 jump_cfg.elapsed = 0;
@@ -645,24 +654,29 @@ void straight_test_run(void)
             straight_test.target_heading = roll_balance_cascade.posture_value.yaw;
             straight_test.gps_available  = false;
         }
+        else if (yaw_fusion_is_gyro_bias_ready())
+        {
+            straight_test.target_heading = roll_balance_cascade.posture_value.yaw;
+            straight_test.gps_available  = false;
+        }
         else
         {
-            return;  // GPS未就绪，继续等待
+            return;  // 等待GPS航向或静止IMU零偏标定完成
         }
 
         // 航向获取成功 → 记录起点，进入运行
         straight_test.start_lat     = (float)gnss.latitude;
         straight_test.start_lon     = (float)gnss.longitude;
-        straight_test.start_mileage = (Car.mileage_L + Car.mileage_R) * 0.5f;
+        straight_test.start_mileage = Car.mileage;
         straight_test.state         = STRAIGHT_RUNNING;
-        target_speed = 200.0f;
+        target_speed = STRAIGHT_TEST_SPEED;
         STOP_FLAG    = 1;
         break;
 
     case STRAIGHT_RUNNING:
     {
         // 距离计数
-        float cur_mileage = (Car.mileage_L + Car.mileage_R) * 0.5f;
+        float cur_mileage = Car.mileage;
         straight_test.distance = cur_mileage - straight_test.start_mileage;
 
         // 航向偏差PID → steer_correction
@@ -671,38 +685,46 @@ void straight_test_run(void)
         straight_test.steer_correction = track_cascade.track_cycle.out;
 
         // 100m到达 → 停止
-        if (straight_test.distance >= 9900.0f)  // 99m提前减速，编码器误差补偿
+        if (straight_test.distance >= STRAIGHT_SLOWDOWN_CM)  // 99m提前减速，编码器误差补偿
         {
             target_speed = 0;
-            if (straight_test.distance >= 10000.0f)
+            if (straight_test.distance >= STRAIGHT_TARGET_CM)
             {
                 straight_test.state = STRAIGHT_DONE;
-                // 计算侧偏
-                float end_lat  = (float)gnss.latitude;
-                float end_lon  = (float)gnss.longitude;
-                float d_total  = (float)get_two_points_distance(
-                    straight_test.start_lat, straight_test.start_lon,
-                    end_lat, end_lon);
-                float azimuth  = (float)get_two_points_azimuth(
-                    straight_test.start_lat, straight_test.start_lon,
-                    end_lat, end_lon);
-                float heading_ref = (straight_test.target_heading > 180.0f)
-                    ? straight_test.target_heading - 360.0f : straight_test.target_heading;
-                float angle_diff = (float)angle_plan((double)(azimuth - heading_ref));
-                straight_test.lateral_deviation = d_total * sin(angle_diff * 0.01745329f);
-
                 // 航向漂移
                 straight_test.yaw_drift = (float)angle_plan((double)(
                     roll_balance_cascade.posture_value.yaw - straight_test.target_heading));
 
-                // 评分
-                float abs_dev = (straight_test.lateral_deviation > 0)
-                    ? straight_test.lateral_deviation : -straight_test.lateral_deviation;
-                if      (abs_dev < 0.3f) straight_test.rating = 5;
-                else if (abs_dev < 0.6f) straight_test.rating = 4;
-                else if (abs_dev < 1.0f) straight_test.rating = 3;
-                else if (abs_dev < 2.0f) straight_test.rating = 2;
-                else                     straight_test.rating = 1;
+                if (straight_test.gps_available && gnss.state == 1)
+                {
+                    // 计算侧偏
+                    float end_lat  = (float)gnss.latitude;
+                    float end_lon  = (float)gnss.longitude;
+                    float d_total  = (float)get_two_points_distance(
+                        straight_test.start_lat, straight_test.start_lon,
+                        end_lat, end_lon);
+                    float azimuth  = (float)get_two_points_azimuth(
+                        straight_test.start_lat, straight_test.start_lon,
+                        end_lat, end_lon);
+                    float heading_ref = (straight_test.target_heading > 180.0f)
+                        ? straight_test.target_heading - 360.0f : straight_test.target_heading;
+                    float angle_diff = (float)angle_plan((double)(azimuth - heading_ref));
+                    straight_test.lateral_deviation = d_total * sin(angle_diff * 0.01745329f);
+
+                    // 评分
+                    float abs_dev = (straight_test.lateral_deviation > 0)
+                        ? straight_test.lateral_deviation : -straight_test.lateral_deviation;
+                    if      (abs_dev < 0.3f) straight_test.rating = 5;
+                    else if (abs_dev < 0.6f) straight_test.rating = 4;
+                    else if (abs_dev < 1.0f) straight_test.rating = 3;
+                    else if (abs_dev < 2.0f) straight_test.rating = 2;
+                    else                     straight_test.rating = 1;
+                }
+                else
+                {
+                    straight_test.lateral_deviation = 0.0f;
+                    straight_test.rating = 0;
+                }
 
                 straight_test.completed = true;
                 STOP_FLAG = 0;
@@ -724,8 +746,9 @@ void pit_call_back(void)
     sys_times++;
 
     imu660rb_get_gyro();
-    imu660rb_gyro_z -= (int16)yaw_fusion_gyro_bias;
     imu660rb_get_acc();
+    yaw_fusion_calibrate_gyro_bias(imu660rb_gyro_z);
+    imu660rb_gyro_z -= (int16)yaw_fusion_gyro_bias;
     quaternion_module_calculate(&roll_balance_cascade);
     yaw_fusion_update();
 
@@ -753,6 +776,7 @@ void pit_call_back(void)
         car_state_calculate();
         car_steer_control();
         straight_test_run();
+        remote_ctrl_update_1ms();
 
         if (sys_times % 20 == 0)
         {
@@ -767,7 +791,7 @@ void pit_call_back(void)
 
         if (STOP_FLAG == 1)
         {
-            int16 steer_adj = (jump_cfg.state == JUMP_IDLE) ? (int16)(N.Final_Out * 10) : 0;
+            int16 steer_adj = ((jump_cfg.state == JUMP_IDLE) && (fuxian == 1)) ? (int16)(N.Final_Out * 10) : 0;
             int16 motor_base = func_limit_ab(-(int16)roll_balance_cascade.angular_speed_cycle.out
                                              + jump_motor_boost_duty,
                                              M_MIN,
@@ -777,6 +801,7 @@ void pit_call_back(void)
             {
                 steer_adj += (int16)straight_test.steer_correction;
             }
+            steer_adj += remote_ctrl_get_steer_adj();
             // 旋转模式：驱动 rotation 状态机并叠加差速
             if (rotation.state == ROT_RUNNING)
             {

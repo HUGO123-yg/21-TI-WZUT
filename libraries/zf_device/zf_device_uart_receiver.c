@@ -47,7 +47,7 @@
 #include "zf_driver_timer.h"
 #include "zf_device_uart_receiver.h"
 
-uart_receiver_struct    uart_receiver ;             // 串口接收机通道数据与状态
+volatile uart_receiver_struct uart_receiver ;             // 串口接收机通道数据与状态
 
 uint8   uart_receiver_data[REV_DATA_LEN]  = {0};    // 接收器原始数据
 
@@ -77,7 +77,7 @@ static uint32 uart_receiver_interval_time (void)
 // 使用示例
 // 备注信息     对sbus数据解析进行解析
 //-------------------------------------------------------------------------------------------------------------------
-static void uart_receiver_analysis (uart_receiver_struct *remote_data,uint8 * buffer)
+static void uart_receiver_analysis (volatile uart_receiver_struct *remote_data,uint8 * buffer)
 {
     uint8 num = 0;
     remote_data->channel[num++] = (buffer[1] |buffer[ 2] << 8 ) & 0x07FF;
@@ -106,6 +106,11 @@ void uart_receiver_callback(void)
         length = 0;
     }
     
+    if(length >= REV_DATA_LEN)
+    {
+        length = 0;
+    }
+
     if(uart_query_byte(UART_RECEVIER_UART_INDEX, &uart_receiver_data[length]))
     {
         length ++;

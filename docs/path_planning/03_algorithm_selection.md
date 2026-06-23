@@ -365,7 +365,7 @@ void path_smooth(int16 raw[][2], int raw_len,
 步骤:
 1. 找前视点: 从当前位置开始, 沿路径搜索距离 = lookahead_L 的点
 2. 计算前视点在车体系中的坐标 (lx, ly)
-3. 曲率 = 2 * lx / (lookahead_L²)
+3. 曲率 = 2 * ly / (lookahead_L²)  // ly 为车体系横向误差
 4. 转向角 = arctan(曲率 × 轴距)
 ```
 

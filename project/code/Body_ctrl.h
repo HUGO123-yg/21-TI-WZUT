@@ -5,9 +5,9 @@
 typedef enum
 {
     JUMP_IDLE       = 0,    // 空闲 — 正常平衡控制 / idle - normal balance control
-    JUMP_PREPARE    = 1,    // 预备 — 降低重心、前倾蓄势 / prepare - lower CG, forward lean
-    JUMP_CHARGE     = 2,    // 蓄力 — X 型压缩储能 / charge - X-pattern compression
-    JUMP_LAUNCH     = 3,    // 起跳 — 释放能量 + 电机助推 / launch - release + motor boost
+    JUMP_PREPARE    = 1,    // 预备 — 平滑下蹲、前倾蓄势 / prepare - smooth crouch, forward lean
+    JUMP_CHARGE     = 2,    // 蓄力 — 四腿同步压缩储能 / charge - all-leg compression
+    JUMP_LAUNCH     = 3,    // 起跳 — 快速伸腿 + 电机助推 / launch - fast extension + motor boost
     JUMP_AIRBORNE   = 4,    // 腾空 — IMU 检测失重，维持姿态 / airborne - IMU detects freefall
     JUMP_LANDING    = 5,    // 着陆 — IMU 检测冲击，主动缓冲 / landing - IMU detects impact, active damping
     JUMP_RECOVER    = 6,    // 恢复 — 逐渐恢复 PID 增益和速度 / recover - gradual PID restoration
@@ -30,7 +30,8 @@ typedef struct
 
     //---------- 舵机占空比偏移 ----------
     // steer duty offsets (PWM duty units)
-    int16   charge_duty;            // 蓄力压缩量（X 型对角）
+    int16   charge_duty;            // 蓄力下蹲量（相对默认站姿，四腿同步）
+    int16   launch_duty;            // 起跳伸腿量（相对默认站姿，四腿同步）
     int16   preland_duty;           // 预着陆偏移量
     int16   land_damping_duty;      // 着陆缓冲步进值
 

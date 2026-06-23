@@ -28,13 +28,14 @@
 #define STAIR_RUNUP_DIST1     30.0f     // 第一跳助跑距离 (cm)
 #define STAIR_RUNUP_DISTN     20.0f     // 后续跳助跑距离 (cm)
 #define STAIR_FINAL_STOP_DIST 15.0f     // 最后一跳刹停距离上限 (cm)
-#define STAIR_CHARGE_TICKS    140       // 上台阶蓄力时间 (ms)
-#define STAIR_LAUNCH_TICKS    35        // 起跳释放时间 (ms)
-#define STAIR_CHARGE_DUTY     3800      // X 型压缩量 (2000~5000)
-#define STAIR_PRELAND_DUTY    1500      // 腾空后预着陆伸腿量
-#define STAIR_MOTOR_BOOST     800.0f    // 起跳电机助推
-#define STAIR_LAND_DAMPING    35        // 落地缓冲步进
-#define STAIR_AIRBORNE_TIMEOUT 220      // 腾空超时保护 (ms)
+#define STAIR_CHARGE_TICKS    100       // 上台阶蓄力时间 (ms)
+#define STAIR_LAUNCH_TICKS    45        // 起跳释放时间 (ms)
+#define STAIR_CHARGE_DUTY     1400      // 四腿同步下蹲量
+#define STAIR_LAUNCH_DUTY     1900      // 四腿同步伸腿量
+#define STAIR_PRELAND_DUTY    900       // 腾空后预着陆伸腿量
+#define STAIR_MOTOR_BOOST     450.0f    // 起跳电机助推
+#define STAIR_LAND_DAMPING    30        // 落地缓冲步进
+#define STAIR_AIRBORNE_TIMEOUT 260      // 腾空超时保护 (ms)
 #define STAIR_LANDING_ACC_THRESHOLD 1.8f // 落地冲击阈值 (g)
 #define STAIR_STOP_SPEED      5.0f      // 判定停止的速度阈值
 

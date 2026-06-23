@@ -264,6 +264,7 @@ typedef struct {
 ```c
 extern float position_target_cm;   // 目标位置（cm）
 extern float position_current_cm;  // 当前位置（cm）
+extern float position_angle_offset; // 位置环输出的角度偏置（度）
 extern int   position_control_enable;  // 位置控制使能
 ```
 
@@ -300,13 +301,10 @@ if (sys_times % 20 == 0)
                     position_target_cm,
                     position_current_cm);
 
-        // 位置环输出叠加到角度环目标
-        // 原始 target = -mechanical_zero, 叠加位置输出
+        // 位置环输出保存为角度偏置，供 5ms 角度环目标叠加
         float pos_offset = roll_balance_cascade.position_cycle.out;
         // 限制在安全范围内
-        pos_offset = func_limit_ab(pos_offset, -5.0f, 5.0f);
-        // 写入速度目标（正偏移=前倾=前进）
-        target_speed = (int16)(pos_offset * 100.0f);  // 比例因子需实车标定
+        position_angle_offset = func_limit_ab(pos_offset, -5.0f, 5.0f);
     }
 
     // (现有代码: 速度环 PID)
@@ -316,7 +314,7 @@ if (sys_times % 20 == 0)
 }
 ```
 
-**注意**：`pos_offset * 100.0f` 中的 100.0 是一个**待标定的比例因子**，将倾斜角度映射到 `target_speed` 的范围（50-700）。这个值必须通过实验确定。
+**注意**：位置环不要直接覆盖 `target_speed`。`position_angle_offset` 应在角度环目标中叠加，例如 `angle_target = -mechanical_zero + position_angle_offset - speed_cycle.out * SPEED_TO_ANGLE_GAIN`，这样位置环和速度环不会互相抢同一个目标变量。
 
 #### 4.2.4 软启动集成 (`Body_ctrl.c` car_state_calculate())
 

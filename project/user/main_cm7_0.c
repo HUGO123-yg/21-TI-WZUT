@@ -51,13 +51,13 @@ int main(void)
     clock_init(SYSTEM_CLOCK_250M); 	// ʱ�����ü�ϵͳ��ʼ��<��ر���>
     debug_init();                       // ���Դ�����Ϣ��ʼ��
     // �˴���д�û����� ���������ʼ�������
-    
+
     BUZZER_init();
 //    imu963ra_init();
 //    imu660ra_init();
       imu660rb_init();
 
-    
+
     flash_init();
     Init_Nag();
 
@@ -66,21 +66,23 @@ int main(void)
     gnss_auto_start();
 
     small_driver_uart_init();
+    uart_receiver_init();
+    remote_ctrl_init();
     balance_cascade_init();
     steer_control_init();
     ips_init(IPS200_TYPE_SPI);
     Key_init();
     system_delay_ms(1000);
-    
-    
-    
+
+
+
     pit_ms_init(PIT_CH0,1);
     pit_ms_init(PIT_CH1,5);
 
     BUZZER_check(50);                       //�Լ�
 
-    
-    
+
+
     // �˴���д�û����� ���������ʼ�������
     while(true)
     {
@@ -110,28 +112,29 @@ int main(void)
             }
         }
 
+        Nag_Service();
         Menu();
 
         // �˴���д��Ҫѭ��ִ�еĴ���
     }
 }
 
-void pit0_ch0_isr()                     // ��ʱ��ͨ�� 0 �����жϷ�����      
+void pit0_ch0_isr()                     // ��ʱ��ͨ�� 0 �����жϷ�����
 {
     pit_isr_flag_clear(PIT_CH0);
-    
+
     pit_call_back();
-    
+
 //    imu660rb_get_gyro();                             // ��ȡ IMU660RA ����������
 //    imu660rb_get_acc();                              // ��ȡ IMU660RA ���ٶȼ�����
 //    quaternion_module_calculate(&roll_balance_cascade); // ������Ԫ����������̬����
-    
+
 }
 
-void pit0_ch1_isr()                     // ��ʱ��ͨ�� 1 �����жϷ�����      
+void pit0_ch1_isr()                     // ��ʱ��ͨ�� 1 �����жϷ�����
 {
     pit_isr_flag_clear(PIT_CH1);
-    
+
     key_scan();
 }
 

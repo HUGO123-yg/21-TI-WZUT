@@ -83,6 +83,7 @@ static uint8 speed_stopped(void)
 static void apply_stair_params(void)
 {
     jump_cfg.charge_duty          = STAIR_CHARGE_DUTY;
+    jump_cfg.launch_duty          = STAIR_LAUNCH_DUTY;
     jump_cfg.charge_ticks         = STAIR_CHARGE_TICKS;
     jump_cfg.launch_ticks         = STAIR_LAUNCH_TICKS;
     jump_cfg.preland_duty         = STAIR_PRELAND_DUTY;

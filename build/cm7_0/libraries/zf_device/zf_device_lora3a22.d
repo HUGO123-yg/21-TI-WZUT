@@ -224,7 +224,8 @@
  /Users/hugo/Desktop/hardware/test3/project/code/yaw_fusion.h \
  /Users/hugo/Desktop/hardware/test3/project/code/Menu.h \
  /Users/hugo/Desktop/hardware/test3/project/code/Stair_test.h \
- /Users/hugo/Desktop/hardware/test3/project/code/Rotation.h
+ /Users/hugo/Desktop/hardware/test3/project/code/Rotation.h \
+ /Users/hugo/Desktop/hardware/test3/project/code/Remote_ctrl.h
 libraries/zf_device/zf_device_lora3a22.h:
 /Users/hugo/Desktop/hardware/test3/libraries/zf_common/zf_common_headfile.h:
 /Users/hugo/Desktop/hardware/test3/libraries/sdk/common/hdr/cy_project.h:
@@ -450,3 +451,4 @@ libraries/zf_device/zf_device_lora3a22.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Menu.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Stair_test.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Rotation.h:
+/Users/hugo/Desktop/hardware/test3/project/code/Remote_ctrl.h:

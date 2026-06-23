@@ -174,7 +174,7 @@ void uart2_isr (void)
     if(uart_isr_mask(UART_2))            // 串口2接收中断
     {
         
-        gnss_uart_callback();
+        uart_control_callback();
         
     }
     else                                // 串口2发送中断
@@ -189,9 +189,7 @@ void uart3_isr (void)
 {
     if(uart_isr_mask(UART_3))            // 串口3接收中断
     {
-        
-        
-        
+        gnss_uart_callback();
     }
     else                                // 串口3发送中断
     {
@@ -206,7 +204,6 @@ void uart4_isr (void)
     if(uart_isr_mask(UART_4))            // 串口4接收中断
     {
 
-        uart_receiver_handler();                                                                // 串口接收机回调函数
        
     }
     else                                // 串口4发送中断
@@ -221,6 +218,7 @@ void uart5_isr (void)
 {
     if(uart_isr_mask(UART_5))            // 串口5接收中断
     {
+        uart_receiver_handler();                                                                // 串口接收机回调函数
         
         
        

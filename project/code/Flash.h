@@ -5,6 +5,23 @@
 #define MaxSize 500 // flash存储的最大页面
 
 #define Read_MaxSize 10000 // 最大读取设置，1w个应该是够了
+#define NAG_POINTS_PER_PAGE       MaxSize
+#define NAG_META_SAVE_INDEX_OFFSET NAG_POINTS_PER_PAGE
+#define NAG_PATH_COUNT            3
+#define NAG_PATH1_META_SLOT       0
+#define NAG_PATH2_META_SLOT       1
+#define NAG_PATH3_META_SLOT       2
+#define NAG_META_MAGIC_OFFSET     (NAG_META_SAVE_INDEX_OFFSET + NAG_PATH_COUNT)
+#define NAG_META_VERSION_OFFSET   (NAG_META_MAGIC_OFFSET + 1)
+#define NAG_META_SAMPLE_CM_OFFSET (NAG_META_VERSION_OFFSET + 1)
+#define NAG_META_CHECKSUM_OFFSET  (NAG_META_SAMPLE_CM_OFFSET + 1)
+#define NAG_META_MAGIC            0x4E414731u
+#define NAG_META_VERSION          1u
+
+#define NAG_RUN_IDLE              0
+#define NAG_RUN_RECORD            1
+#define NAG_RUN_PRELOAD           2
+#define NAG_RUN_REPLAY            3
 
 // 参数范围 <0 - 95>
 #define Nag_End_Page 1    // flash中止页面
@@ -65,14 +82,17 @@ void Run_Nag_Save(void);
 void flash_Nag_Write(void);
 void flash_Nag_Read(void);
 void Run_Nag_GPS(void);
-double angle_plan(double angle);
+float angle_plan(float angle);
 void NagFlashRead(void);
 void Init_Nag(void);
 void Nag_System(void);
+void Nag_Service(void);
 
 // ============== 多路径新增接口 ==============
 void Init_Nag_Path(uint8 path_id);     // 按路径初始化惯导 (设置Flash_page_index)
 void flash_Nag_Write_Meta(void);      // 写入元数据页 (3条路径的Save_index)
-void flash_Nag_Read_Meta(void);       // 读取元数据页
+void flash_Nag_Read_Meta(void);
+void Nag_Clear_Path_Meta(uint8 path_id);
+// 读取元数据页
 uint16 Get_Path_SaveIndex(uint8 path_id); // 获取指定路径的Save_index
 

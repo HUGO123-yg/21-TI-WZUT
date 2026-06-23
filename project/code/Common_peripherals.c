@@ -184,10 +184,10 @@ void steer_control_init(void)
     steer_4.steer_dir        = STEER_4_DIR;        // 舵机 4 转动方向配置
     steer_4.center_num       = STEER_4_CENTER;     // 舵机 4 中心位置（初始位置）配置
 
-    steer_1.now_location     = steer_1.center_num; // 舵机 1 当前位置初始化为中心位置
-    steer_2.now_location     = steer_2.center_num; // 舵机 2 当前位置初始化为中心位置
-    steer_3.now_location     = steer_3.center_num; // 舵机 3 当前位置初始化为中心位置
-    steer_4.now_location     = steer_4.center_num; // 舵机 4 当前位置初始化为中心位置
+    steer_1.now_location     = func_limit_ab(steer_1.center_num + STEER_1_DEFAULT_OFFSET * steer_1.steer_dir, 0, 10000);
+    steer_2.now_location     = func_limit_ab(steer_2.center_num + STEER_2_DEFAULT_OFFSET * steer_2.steer_dir, 0, 10000);
+    steer_3.now_location     = func_limit_ab(steer_3.center_num + STEER_3_DEFAULT_OFFSET * steer_3.steer_dir, 0, 10000);
+    steer_4.now_location     = func_limit_ab(steer_4.center_num + STEER_4_DEFAULT_OFFSET * steer_4.steer_dir, 0, 10000);
 
     // 初始化 4 路舵机的 PWM 输出，频率为配置值，初始占空比为中心位置值
     pwm_init(steer_1.pwm_pin, steer_1.control_frequency, steer_1.now_location);

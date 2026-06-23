@@ -1158,6 +1158,12 @@
             <name>$PROJ_DIR$\..\..\code\Menu.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Remote_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Remote_ctrl.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Rotation.c</name>
         </file>
         <file>

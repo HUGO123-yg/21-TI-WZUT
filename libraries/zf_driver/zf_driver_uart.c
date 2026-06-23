@@ -601,8 +601,8 @@ void uart_sbus_init (uart_index_enum uart_n, uint32 baud, uart_tx_pin_enum tx_pi
     
     g_stc_uart_config.uartMode          = CY_SCB_UART_STANDARD;
     g_stc_uart_config.oversample        = 8;
-    g_stc_uart_config.dataWidth         = 9;
-    g_stc_uart_config.stopBits          = CY_SCB_UART_STOP_BITS_1;
+    g_stc_uart_config.dataWidth         = 8;
+    g_stc_uart_config.stopBits          = CY_SCB_UART_STOP_BITS_2;
     g_stc_uart_config.parity            = CY_SCB_UART_PARITY_EVEN;
     g_stc_uart_config.ctsPolarity       = CY_SCB_UART_ACTIVE_LOW;  
     g_stc_uart_config.rtsPolarity       = CY_SCB_UART_ACTIVE_LOW;

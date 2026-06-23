@@ -80,6 +80,7 @@ static void draw_l2_b(void);
 static void draw_l2_c(void);
 static void draw_l2_d(void);
 static void draw_l2_e(void);
+static void draw_nav_replay_status(void);
 void fun_a31(void); void fun_a32(void); void fun_a33(void); void fun_a34(void);
 void fun_b31(void); void fun_b32(void); void fun_b33(void); void fun_b34(void);
 void fun_c31(void); void fun_c32(void); void fun_c33(void); void fun_c34(void);
@@ -264,6 +265,23 @@ static void draw_not_implemented(void)
     ips_show_string(8 * 6, 16 * 4, "Not Implemented");
 }
 
+static void draw_nav_replay_status(void)
+{
+    const char *state = "Idle";
+
+    if (N.Nag_SystemRun_Index == NAG_RUN_PRELOAD)
+        state = "Loading";
+    else if (N.Nag_SystemRun_Index == NAG_RUN_REPLAY)
+        state = "Replay";
+    else if (N.Nag_Stop_f)
+        state = "Stop";
+
+    ips_show_string(0, 16 * 6, "State:");
+    ips_show_string(8 * 10, 16 * 6, state);
+    ips_show_string(0, 16 * 7, "SaveIdx:");
+    ips_show_int(8 * 10, 16 * 7, N.Save_index, 5);
+}
+
 // ============================================================
 // Menu() — Core Dispatch Engine
 // ============================================================
@@ -321,7 +339,7 @@ void Menu(void)
 //   so re-entering the page triggers fresh initialization.
 
 // fun_a31: Path 1 — Start Recording
-//   Sets Nag_SystemRun_Index=1 to begin logging trajectory data.
+//   Sets Nag_SystemRun_Index=NAG_RUN_RECORD to begin logging trajectory data.
 //   Displays real-time distance, yaw angle, and save index.
 void fun_a31(void)
 {
@@ -329,7 +347,7 @@ void fun_a31(void)
     if (e->init_flag == 0)
     {
         Init_Nag_Path(1);
-        N.Nag_SystemRun_Index = 1;          // Enter recording mode
+        N.Nag_SystemRun_Index = NAG_RUN_RECORD; // Enter recording mode
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P1 recording....");
@@ -345,14 +363,14 @@ void fun_a32(void)
     key_table *e = &table_dispaly[func_index];
     if (e->init_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P1 SAVE....");
 }
 
 // fun_a33: Path 1 — Replay
-//   Sets Nag_SystemRun_Index=2 to enter replay mode.
+//   Sets Nag_SystemRun_Index=NAG_RUN_PRELOAD to enter replay mode.
 //   Displays PID output values, yaw, angle run, and navigation index.
 void fun_a33(void)
 {
@@ -360,9 +378,9 @@ void fun_a33(void)
     if (e->init_flag == 0)
     {
         Init_Nag_Path(1);
-        N.Nag_SystemRun_Index = 2;          // Enter replay mode
-        fuxian = 1;                          // Enable trajectory tracking
-        target_speed = user_set_speed;
+        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD; // Enter replay mode
+        fuxian = 0;                          // Enable after path preload finishes
+        target_speed = 0;
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P1 Replay");
@@ -371,8 +389,7 @@ void fun_a33(void)
     ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
     ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
     ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
-    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
+    draw_nav_replay_status();
 }
 
 // fun_a34: Path 1 — Clear
@@ -390,14 +407,7 @@ void fun_a34(void)
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        // Zero Path 1 save index in meta page ----------------
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 0].uint32_type = 0;   // offset 0 = Path 1
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
+        Nag_Clear_Path_Meta(1);
 
         Init_Nag_Path(1);                   // Re-init to clean state
         e->init_flag = 1;
@@ -409,7 +419,7 @@ void fun_a34(void)
 // Level 3 — Group B: Navigation Path 2
 // ============================================================
 // Identical structure to Group A but operates on Path 2.
-// flash_union_buffer offset is MaxSize+1 (Path 2's save index).
+// flash_union_buffer offset is NAG_META_SAVE_INDEX_OFFSET + NAG_PATH2_META_SLOT.
 
 void fun_b31(void)  // Path 2 — Start Recording
 {
@@ -417,7 +427,7 @@ void fun_b31(void)  // Path 2 — Start Recording
     if (e->init_flag == 0)
     {
         Init_Nag_Path(2);
-        N.Nag_SystemRun_Index = 1;
+        N.Nag_SystemRun_Index = NAG_RUN_RECORD;
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P2 recording....");
@@ -431,7 +441,7 @@ void fun_b32(void)  // Path 2 — Save
     key_table *e = &table_dispaly[func_index];
     if (e->init_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P2 SAVE....");
@@ -443,9 +453,9 @@ void fun_b33(void)  // Path 2 — Replay
     if (e->init_flag == 0)
     {
         Init_Nag_Path(2);
-        N.Nag_SystemRun_Index = 2;
-        fuxian = 1;
-        target_speed = user_set_speed;
+        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD;
+        fuxian = 0;
+        target_speed = 0;
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P2 Replay");
@@ -454,8 +464,7 @@ void fun_b33(void)  // Path 2 — Replay
     ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
     ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
     ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
-    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
+    draw_nav_replay_status();
 }
 
 void fun_b34(void)  // Path 2 — Clear
@@ -469,13 +478,7 @@ void fun_b34(void)  // Path 2 — Clear
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 1].uint32_type = 0;   // offset 1 = Path 2
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
+        Nag_Clear_Path_Meta(2);
 
         Init_Nag_Path(2);
         e->init_flag = 1;
@@ -487,7 +490,7 @@ void fun_b34(void)  // Path 2 — Clear
 // Level 3 — Group C: Navigation Path 3
 // ============================================================
 // Identical structure to Groups A/B but operates on Path 3.
-// flash_union_buffer offset is MaxSize+2.
+// flash_union_buffer offset is NAG_META_SAVE_INDEX_OFFSET + NAG_PATH3_META_SLOT.
 
 void fun_c31(void)  // Path 3 — Start Recording
 {
@@ -495,7 +498,7 @@ void fun_c31(void)  // Path 3 — Start Recording
     if (e->init_flag == 0)
     {
         Init_Nag_Path(3);
-        N.Nag_SystemRun_Index = 1;
+        N.Nag_SystemRun_Index = NAG_RUN_RECORD;
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P3 recording....");
@@ -509,7 +512,7 @@ void fun_c32(void)  // Path 3 — Save
     key_table *e = &table_dispaly[func_index];
     if (e->init_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == 1) { N.End_f = 1; }
+        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P3 SAVE....");
@@ -521,9 +524,9 @@ void fun_c33(void)  // Path 3 — Replay
     if (e->init_flag == 0)
     {
         Init_Nag_Path(3);
-        N.Nag_SystemRun_Index = 2;
-        fuxian = 1;
-        target_speed = user_set_speed;
+        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD;
+        fuxian = 0;
+        target_speed = 0;
         e->init_flag = 1;
     }
     ips_show_string(8 * 0, 16 * 0, "P3 Replay");
@@ -532,8 +535,7 @@ void fun_c33(void)  // Path 3 — Replay
     ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
     ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
     ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16 * 6, "SaveIdx:");      ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
-    ips_show_string(0, 16 * 7, "Nav0:");         ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
+    draw_nav_replay_status();
 }
 
 void fun_c34(void)  // Path 3 — Clear
@@ -547,13 +549,7 @@ void fun_c34(void)  // Path 3 — Clear
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 2].uint32_type = 0;   // offset 2 = Path 3
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
+        Nag_Clear_Path_Meta(3);
 
         Init_Nag_Path(3);
         e->init_flag = 1;
@@ -588,10 +584,10 @@ void fun_e32(void)  // Jump — Config Display (read-only)
     ips_show_string(8 * 0, 16 * 0, "Jump Config");
     ips_show_string(8 * 0, 16 * 1, "ChargeT");   ips_show_int(8 * 10, 16 * 1, jump_cfg.charge_ticks, 5);
     ips_show_string(8 * 0, 16 * 2, "ChargeD");   ips_show_int(8 * 10, 16 * 2, jump_cfg.charge_duty, 5);
-    ips_show_string(8 * 0, 16 * 3, "AirTmout");  ips_show_int(8 * 10, 16 * 3, jump_cfg.airborne_timeout, 5);
-    ips_show_string(8 * 0, 16 * 4, "Boost");     ips_show_float(8 * 10, 16 * 4, jump_cfg.forward_motor_boost, 5, 1);
-    ips_show_string(8 * 0, 16 * 5, "TiltAbort"); ips_show_float(8 * 10, 16 * 5, jump_cfg.max_tilt_abort, 5, 1);
-    ips_show_string(8 * 0, 16 * 6, "AirAccTh");  ips_show_float(8 * 10, 16 * 6, jump_cfg.airborne_acc_threshold, 5, 2);
+    ips_show_string(8 * 0, 16 * 3, "LaunchD");   ips_show_int(8 * 10, 16 * 3, jump_cfg.launch_duty, 5);
+    ips_show_string(8 * 0, 16 * 4, "AirTmout");  ips_show_int(8 * 10, 16 * 4, jump_cfg.airborne_timeout, 5);
+    ips_show_string(8 * 0, 16 * 5, "Boost");     ips_show_float(8 * 10, 16 * 5, jump_cfg.forward_motor_boost, 5, 1);
+    ips_show_string(8 * 0, 16 * 6, "TiltAbort"); ips_show_float(8 * 10, 16 * 6, jump_cfg.max_tilt_abort, 5, 1);
     ips_show_string(8 * 0, 16 * 7, "LandAccTh"); ips_show_float(8 * 10, 16 * 7, jump_cfg.landing_acc_threshold, 5, 2);
     ips_show_string(8 * 0, 16 * 8, "VisionEn");  ips_show_int(8 * 10, 16 * 8, jump_cfg.vision_jump_enable, 5);
 }
