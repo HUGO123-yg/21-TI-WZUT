@@ -31,8 +31,13 @@ typedef struct {
     uint8            jump_ok;          // 本次跳跃是否触发成功
     uint8            fail_reason;      // 0=无故障，1=触发失败，2=超距未停
     uint8            last_trigger_result;
-    float            start_mileage;
-    float            stop_mileage;
+    float            segment_start_x;
+    float            stop_x_cm;
+    float            x_cm;
+    float            y_cm;
+    float            yaw_ref_deg;
+    float            last_mileage;
+    float            x_target_cm;
     uint16           phase_timer;
     uint16           trigger_wait_timer;
 } stair_ctx;
@@ -41,6 +46,11 @@ static stair_ctx ctx_jump;
 static stair_ctx ctx_single;
 static stair_ctx ctx_seq;
 static uint8 stop_stable_count = 0;
+static pid_cycle_struct stair_px_pid;
+static pid_cycle_struct stair_yaw_pid;
+static float stair_px_angle_offset = 0.0f;
+static uint8 stair_px_enable = 0;
+static int16 stair_heading_motor_adj = 0;
 
 // ============================================================
 // 辅助函数
@@ -52,6 +62,41 @@ static float current_mileage(void)
     return Car.mileage;
 }
 
+static float stair_wrap_angle(float angle)
+{
+    while (angle > 180.0f)
+        angle -= 360.0f;
+    while (angle < -180.0f)
+        angle += 360.0f;
+    return angle;
+}
+
+static void stair_px_pid_init(void)
+{
+    stair_px_pid.p = STAIR_PX_KP;
+    stair_px_pid.i = STAIR_PX_KI;
+    stair_px_pid.d = STAIR_PX_KD;
+    stair_px_pid.i_value = 0.0f;
+    stair_px_pid.p_value_last = 0.0f;
+    stair_px_pid.out = 0.0f;
+    stair_px_pid.i_value_max = STAIR_PX_INTEGRAL_MAX;
+    stair_px_pid.i_value_pro = STAIR_PX_INTEGRAL_PRO;
+    stair_px_pid.out_max = STAIR_PX_OUT_MAX;
+}
+
+static void stair_yaw_pid_init(void)
+{
+    stair_yaw_pid.p = STAIR_YAW_KP;
+    stair_yaw_pid.i = STAIR_YAW_KI;
+    stair_yaw_pid.d = STAIR_YAW_KD;
+    stair_yaw_pid.i_value = 0.0f;
+    stair_yaw_pid.p_value_last = 0.0f;
+    stair_yaw_pid.out = 0.0f;
+    stair_yaw_pid.i_value_max = STAIR_YAW_INTEGRAL_MAX;
+    stair_yaw_pid.i_value_pro = STAIR_YAW_INTEGRAL_PRO;
+    stair_yaw_pid.out_max = STAIR_YAW_OUT_MAX;
+}
+
 static void stair_ctx_begin(stair_ctx *c)
 {
     c->active             = 1;
@@ -60,17 +105,103 @@ static void stair_ctx_begin(stair_ctx *c)
     c->jump_ok            = 0;
     c->fail_reason        = 0;
     c->last_trigger_result = JUMP_TRIGGER_OK;
-    c->start_mileage      = current_mileage();
-    c->stop_mileage       = 0.0f;
+    c->segment_start_x    = 0.0f;
+    c->stop_x_cm          = 0.0f;
+    c->x_cm               = 0.0f;
+    c->y_cm               = 0.0f;
+    c->yaw_ref_deg        = roll_balance_cascade.posture_value.yaw;
+    c->last_mileage       = current_mileage();
+    c->x_target_cm        = 0.0f;
     c->phase_timer        = 0;
     c->trigger_wait_timer = 0;
     stop_stable_count = 0;
+    stair_px_pid_init();
+    stair_yaw_pid_init();
+    stair_px_angle_offset = 0.0f;
+    stair_px_enable = 0;
+    stair_heading_motor_adj = 0;
 }
 
-// 自起跑以来的行进距离 (cm)
-static float mileage_delta(const stair_ctx *c)
+static float stair_coord_update(stair_ctx *c)
 {
-    return current_mileage() - c->start_mileage;
+    float mileage_now;
+    float ds;
+    float yaw_error;
+    float yaw_rad;
+
+    if (!c->active)
+        return 0.0f;
+
+    mileage_now = current_mileage();
+    ds = mileage_now - c->last_mileage;
+    c->last_mileage = mileage_now;
+
+    yaw_error = stair_wrap_angle(roll_balance_cascade.posture_value.yaw - c->yaw_ref_deg);
+    yaw_rad = yaw_error * 0.01745329f;
+    c->x_cm += ds * cosf(yaw_rad);
+    c->y_cm += ds * sinf(yaw_rad);
+
+    return yaw_error;
+}
+
+static void stair_heading_update(stair_ctx *c, float yaw_error)
+{
+    if (!c->active)
+    {
+        stair_heading_motor_adj = 0;
+        return;
+    }
+
+    pid_control(&stair_yaw_pid, 0.0f, yaw_error);
+    stair_heading_motor_adj = (int16)(STAIR_YAW_MOTOR_DIR * stair_yaw_pid.out);
+}
+
+static void stair_pose_update(stair_ctx *c)
+{
+    float yaw_error = stair_coord_update(c);
+    stair_heading_update(c, yaw_error);
+}
+
+// 当前段沿车体 x 轴的行进距离 (cm)
+static float stair_x_delta(const stair_ctx *c)
+{
+    return c->x_cm - c->segment_start_x;
+}
+
+static void stair_px_set_target(stair_ctx *c, float x_target_cm)
+{
+    c->x_target_cm = x_target_cm;
+    stair_px_enable = 1;
+}
+
+static void stair_px_disable(void)
+{
+    stair_px_enable = 0;
+    stair_px_angle_offset = 0.0f;
+    stair_px_pid.i_value = 0.0f;
+    stair_px_pid.p_value_last = 0.0f;
+    stair_px_pid.out = 0.0f;
+}
+
+static void stair_heading_disable(void)
+{
+    stair_heading_motor_adj = 0;
+    stair_yaw_pid.i_value = 0.0f;
+    stair_yaw_pid.p_value_last = 0.0f;
+    stair_yaw_pid.out = 0.0f;
+}
+
+static void stair_px_update(stair_ctx *c)
+{
+    if (!stair_px_enable || !c->active || jump_is_active())
+    {
+        stair_px_angle_offset = 0.0f;
+        return;
+    }
+
+    pid_control(&stair_px_pid, c->x_target_cm, c->x_cm);
+    stair_px_angle_offset = STAIR_PX_ANGLE_DIR * stair_px_pid.out;
+    target_speed = STAIR_PX_HOLD_SPEED;
 }
 
 // 车速是否已降到阈值以下 — 连续稳定检测，避免编码器噪声
@@ -109,6 +240,8 @@ static void restore_jump_defaults(void)
 static void stair_finish(stair_ctx *c, uint8 ok, uint8 fail_reason)
 {
     target_speed = 0.0f;
+    stair_px_disable();
+    stair_heading_disable();
     c->jump_ok = ok;
     c->fail_reason = fail_reason;
     c->active = 0;
@@ -182,17 +315,18 @@ static uint8 stair_stop_timeout(stair_ctx *c, uint8 restore_defaults)
 // ============================================================
 static void stair_display(const char *title, stair_phase_enum phase,
                           uint8 jump_ok, uint8 fail_reason, uint8 last_trigger_result,
-                          float distance_cm, uint8 jump_idx, uint8 jump_total)
+                          float x_cm, float y_cm, uint8 jump_idx, uint8 jump_total)
 {
     static uint32 last_display_ms = 0;
-    int32 dist_i;
+    int32 x_i;
+    int32 y_i;
 
     if (last_display_ms != 0 && (uint32)(sys_times - last_display_ms) < STAIR_LCD_PERIOD_MS)
         return;
     last_display_ms = sys_times;
 
-    dist_i = (int32)distance_cm;
-    dist_i = func_limit_ab(dist_i, -9999, 9999);
+    x_i = func_limit_ab((int32)x_cm, -9999, 9999);
+    y_i = func_limit_ab((int32)y_cm, -9999, 9999);
 
     ips_show_string(8 * 0, 16 * 0, title);
     ips_show_string(8 * 0, 16 * 2, "P:");
@@ -215,19 +349,21 @@ static void stair_display(const char *title, stair_phase_enum phase,
     ips_show_string(8 * 3, 16 * 3, jump_state_name(jump_cfg.state));
     ips_show_string(8 * 0, 16 * 4, "V:");
     ips_show_int(8 * 3, 16 * 4, car_speed, 5);
-    ips_show_string(8 * 0, 16 * 5, "D:");
-    ips_show_int(8 * 3, 16 * 5, dist_i, 5);
+    ips_show_string(8 * 0, 16 * 5, "X:");
+    ips_show_int(8 * 3, 16 * 5, x_i, 5);
     ips_show_string(8 * 0, 16 * 6, "F:");
     ips_show_int(8 * 3, 16 * 6, fail_reason, 1);
     ips_show_string(8 * 5, 16 * 6, jump_ok ? "OK " : "-- ");
+    ips_show_string(8 * 0, 16 * 7, "Y:");
+    ips_show_int(8 * 3, 16 * 7, y_i, 5);
     ips_show_string(8 * 0, 16 * 8, "T:");
     ips_show_string(8 * 3, 16 * 8, jump_trigger_result_name(last_trigger_result));
     if (jump_total > 1)
     {
-        ips_show_string(8 * 0, 16 * 7, "J:");
-        ips_show_int(8 * 3, 16 * 7, jump_idx, 1);
-        ips_show_string(8 * 4, 16 * 7, "/");
-        ips_show_int(8 * 5, 16 * 7, jump_total, 1);
+        ips_show_string(8 * 0, 16 * 9, "J:");
+        ips_show_int(8 * 3, 16 * 9, jump_idx, 1);
+        ips_show_string(8 * 4, 16 * 9, "/");
+        ips_show_int(8 * 5, 16 * 9, jump_total, 1);
     }
 }
 
@@ -247,6 +383,7 @@ static void stair_jump_step(void)
 {
     if (!ctx_jump.active) return;
     ctx_jump.phase_timer++;
+    stair_pose_update(&ctx_jump);
 
     switch (ctx_jump.phase)
     {
@@ -271,7 +408,7 @@ static void stair_jump_step(void)
             target_speed         = 0;
             ctx_jump.phase       = STAIR_PHASE_STOPPING;
             ctx_jump.phase_timer = 0;
-            ctx_jump.stop_mileage = current_mileage();
+            ctx_jump.stop_x_cm = ctx_jump.x_cm;
             stop_stable_count = 0;
         }
         break;
@@ -295,7 +432,7 @@ static void stair_jump_step(void)
 void stair_jump_run(void)
 {
     stair_display("Jump Test", ctx_jump.phase, ctx_jump.jump_ok, ctx_jump.fail_reason,
-                  ctx_jump.last_trigger_result, mileage_delta(&ctx_jump), 0, 0);
+                  ctx_jump.last_trigger_result, ctx_jump.x_cm, ctx_jump.y_cm, 0, 0);
 }
 
 uint8 stair_jump_is_done(void)
@@ -310,21 +447,25 @@ void stair_single_start(void)
 {
     stair_abort();
     stair_ctx_begin(&ctx_single);
-    target_speed            = STAIR_RUNUP_SPEED;
+    target_speed            = STAIR_PX_HOLD_SPEED;
+    stair_px_set_target(&ctx_single, STAIR_RUNUP_DIST1);
 }
 
 static void stair_single_step(void)
 {
     if (!ctx_single.active) return;
     ctx_single.phase_timer++;
+    stair_pose_update(&ctx_single);
 
     switch (ctx_single.phase)
     {
     case STAIR_PHASE_RUNUP:
-        if (mileage_delta(&ctx_single) >= STAIR_RUNUP_DIST1
+        stair_px_update(&ctx_single);
+        if (stair_x_delta(&ctx_single) >= STAIR_RUNUP_DIST1
             && ctx_single.phase_timer > 20)
         {
             apply_stair_params();
+            stair_px_disable();
             (void)stair_trigger_jump(&ctx_single);
         }
         break;
@@ -343,7 +484,7 @@ static void stair_single_step(void)
             target_speed           = 0;
             ctx_single.phase       = STAIR_PHASE_STOPPING;
             ctx_single.phase_timer = 0;
-            ctx_single.stop_mileage = current_mileage();
+            ctx_single.stop_x_cm = ctx_single.x_cm;
             stop_stable_count = 0;
         }
         break;
@@ -367,7 +508,7 @@ static void stair_single_step(void)
 void stair_single_run(void)
 {
     stair_display("Stair Test", ctx_single.phase, ctx_single.jump_ok, ctx_single.fail_reason,
-                  ctx_single.last_trigger_result, mileage_delta(&ctx_single), 0, 0);
+                  ctx_single.last_trigger_result, ctx_single.x_cm, ctx_single.y_cm, 0, 0);
 }
 
 uint8 stair_single_is_done(void)
@@ -393,13 +534,15 @@ static void stair_seq_step(void)
 {
     if (!ctx_seq.active) return;
     ctx_seq.phase_timer++;
+    stair_pose_update(&ctx_seq);
 
     switch (ctx_seq.phase)
     {
     case STAIR_PHASE_RUNUP:
-        target_speed = STAIR_RUNUP_SPEED;
+        stair_px_update(&ctx_seq);
         if (ctx_seq.phase_timer >= STAIR_SEQ_INTERVAL_MS)
         {
+            stair_px_disable();
             (void)stair_trigger_jump(&ctx_seq);
         }
         break;
@@ -422,7 +565,8 @@ static void stair_seq_step(void)
                 ctx_seq.phase         = STAIR_PHASE_RUNUP;
                 ctx_seq.phase_timer   = 0;
                 ctx_seq.trigger_wait_timer = 0;
-                ctx_seq.start_mileage = current_mileage();
+                ctx_seq.segment_start_x = ctx_seq.x_cm;
+                stair_px_set_target(&ctx_seq, ctx_seq.x_cm + STAIR_RUNUP_DISTN);
                 target_speed          = STAIR_RUNUP_SPEED;
             }
             else
@@ -430,7 +574,7 @@ static void stair_seq_step(void)
                 target_speed     = STAIR_FINAL_BRAKE_SPEED;
                 ctx_seq.phase    = STAIR_PHASE_STOPPING;
                 ctx_seq.phase_timer = 0;
-                ctx_seq.stop_mileage = current_mileage();   // 记录刹停起点
+                ctx_seq.stop_x_cm = ctx_seq.x_cm;           // 记录刹停起点
                 stop_stable_count = 0;
             }
         }
@@ -443,7 +587,7 @@ static void stair_seq_step(void)
         {
             stair_finish_with_defaults(&ctx_seq, 1, STAIR_FAIL_NONE);
         }
-        else if ((current_mileage() - ctx_seq.stop_mileage) > STAIR_FINAL_STOP_DIST)
+        else if ((ctx_seq.x_cm - ctx_seq.stop_x_cm) > STAIR_FINAL_STOP_DIST)
         {
             // 超距未停：强制终止（Step 3 仅 250mm，前方下坡）
             stair_finish_with_defaults(&ctx_seq, 0, STAIR_FAIL_OVER_DIST);
@@ -466,7 +610,7 @@ void stair_seq_run(void)
                          : ctx_seq.jump_index;
 
     stair_display("Stair Seq", ctx_seq.phase, ctx_seq.jump_ok, ctx_seq.fail_reason,
-                  ctx_seq.last_trigger_result, mileage_delta(&ctx_seq), display_index, STAIR_SEQ_TOTAL_JUMPS);
+                  ctx_seq.last_trigger_result, ctx_seq.x_cm, ctx_seq.y_cm, display_index, STAIR_SEQ_TOTAL_JUMPS);
 }
 
 uint8 stair_seq_is_done(void)
@@ -481,6 +625,8 @@ void stair_abort(void)
 {
     jump_abort();
     target_speed = 0;
+    stair_px_disable();
+    stair_heading_disable();
     restore_jump_defaults();
 
     ctx_jump.active = 0;
@@ -501,4 +647,19 @@ void stair_service_1ms(void)
 uint8 stair_is_active(void)
 {
     return (ctx_jump.active || ctx_single.active || ctx_seq.active) ? 1 : 0;
+}
+
+float stair_get_px_angle_offset(void)
+{
+    return stair_px_angle_offset;
+}
+
+uint8 stair_px_angle_control_active(void)
+{
+    return (stair_px_enable && !jump_is_active()) ? 1 : 0;
+}
+
+int16 stair_get_heading_motor_adj(void)
+{
+    return stair_heading_motor_adj;
 }

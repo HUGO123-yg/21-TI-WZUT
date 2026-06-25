@@ -113,6 +113,36 @@ static void jump_reset_pid_memory(void)
     pitch_balance_cascade.angle_cycle.p_value_last = 0;
 }
 
+static uint8 jump_speed_loop_should_update(void)
+{
+    switch (jump_cfg.state)
+    {
+    case JUMP_PREPARE:
+    case JUMP_CHARGE:
+    case JUMP_LANDING:
+    case JUMP_RECOVER:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static uint8 balance_speed_loop_enabled(void)
+{
+    if (stair_px_angle_control_active())
+        return 0;
+    if (jump_cfg.state == JUMP_IDLE)
+        return 1;
+    return jump_speed_loop_should_update();
+}
+
+static void balance_speed_loop_clear(void)
+{
+    roll_balance_cascade.speed_cycle.i_value = 0;
+    roll_balance_cascade.speed_cycle.out = 0;
+    roll_balance_cascade.speed_cycle.p_value_last = 0;
+}
+
 static void jump_apply_fixed_pid(void)
 {
     roll_balance_cascade.angle_cycle = jump_saved_angle_cycle;
@@ -123,7 +153,7 @@ static void jump_apply_fixed_pid(void)
     roll_balance_cascade.angle_cycle.d = 0.0f;
     roll_balance_cascade.angular_speed_cycle.i = 0.0f;
     roll_balance_cascade.angular_speed_cycle.d = 0.0f;
-    roll_balance_cascade.speed_cycle.p = 0.0f;
+    roll_balance_cascade.speed_cycle.p = jump_saved_speed_cycle.p;
     roll_balance_cascade.speed_cycle.i = 0.0f;
     roll_balance_cascade.speed_cycle.d = 0.0f;
 
@@ -299,6 +329,7 @@ uint8 jump_trigger(void)
     jump_cfg.stored_speed_target = target_speed;
 
     jump_apply_fixed_pid();
+    jump_set_neutral_leg_offset();
     target_speed = jump_cfg.stored_speed_target;
 
     return JUMP_TRIGGER_OK;
@@ -471,19 +502,22 @@ void car_state_calculate(void)
     }
 
     //---------- 跳跃中的 PID 管理 ----------
-    // 固定时序跳跃时关闭速度环，只保留角度环 / 角速度环原始 Kp。
+    // 姿态环始终保持原始 Kp；速度环只在接地相关阶段用纯 P 更新。
     roll_balance_cascade.angle_cycle.p = jump_saved_angle_cycle.p;
     roll_balance_cascade.angle_cycle.i = 0.0f;
     roll_balance_cascade.angle_cycle.d = 0.0f;
     roll_balance_cascade.angular_speed_cycle.p = jump_saved_angular_speed_cycle.p;
     roll_balance_cascade.angular_speed_cycle.i = 0.0f;
     roll_balance_cascade.angular_speed_cycle.d = 0.0f;
-    roll_balance_cascade.speed_cycle.p = 0.0f;
+    roll_balance_cascade.speed_cycle.p = jump_speed_loop_should_update()
+                                       ? jump_saved_speed_cycle.p
+                                       : 0.0f;
     roll_balance_cascade.speed_cycle.i = 0.0f;
     roll_balance_cascade.speed_cycle.d = 0.0f;
-    roll_balance_cascade.speed_cycle.i_value = 0;
-    roll_balance_cascade.speed_cycle.out = 0;
-    roll_balance_cascade.speed_cycle.p_value_last = 0;
+    if (!jump_speed_loop_should_update())
+    {
+        balance_speed_loop_clear();
+    }
     pitch_balance_cascade.angle_cycle.i_value = 0;
 }
 
@@ -510,8 +544,15 @@ void car_steer_control(void)
         roll_balance_cascade.posture_value.rol + roll_balance_cascade.posture_value.mechanical_zero
     ), 0.0f, 30.0f)) / 30.0f;
 
-    speed_steer = func_limit_ab((int16)(roll_balance_cascade.speed_cycle.out / 7.0f), -250, 250) * 6;
-    speed_steer = (int16)((float)speed_steer * pitch_offset);
+    if (stair_px_angle_control_active())
+    {
+        speed_steer = 0;
+    }
+    else
+    {
+        speed_steer = func_limit_ab((int16)(roll_balance_cascade.speed_cycle.out / 7.0f), -250, 250) * 6;
+        speed_steer = (int16)((float)speed_steer * pitch_offset);
+    }
 
     s_filter = (s_filter * 8 + (float)speed_steer) / 10.0f;
     steer_output_duty_filter = s_filter;
@@ -893,6 +934,89 @@ void straight_test_run(void)
     }
 }
 
+static void balance_angle_loop_step(void)
+{
+    float speed_angle_offset = balance_speed_loop_enabled()
+                             ? (roll_balance_cascade.speed_cycle.out * SPEED_TO_ANGLE_GAIN)
+                             : 0.0f;
+    float angle_target = (0.0f - roll_balance_cascade.posture_value.mechanical_zero)
+                       - speed_angle_offset
+                       - stair_get_px_angle_offset();
+
+    pid_control(&roll_balance_cascade.angle_cycle,
+                angle_target,
+                -roll_balance_cascade.posture_value.pit);
+}
+
+static void balance_angular_speed_loop_step(void)
+{
+    pid_control(&roll_balance_cascade.angular_speed_cycle,
+                roll_balance_cascade.angle_cycle.out,
+                imu660rb_gyro_y);
+}
+
+static void balance_speed_loop_step(void)
+{
+    car_speed = (motor_value.receive_left_speed_data - motor_value.receive_right_speed_data) / 2;
+
+    if (balance_speed_loop_enabled())
+    {
+        pid_control(&roll_balance_cascade.speed_cycle, target_speed, (float)car_speed);
+    }
+    else
+    {
+        balance_speed_loop_clear();
+    }
+
+    if (fuxian == 1)
+    {
+        pid_control(&track_cascade.track_cycle, N.Final_Out, 0);
+    }
+}
+
+static int16 body_motor_steer_adj(void)
+{
+    int16 steer_adj = ((jump_cfg.state == JUMP_IDLE)
+                    && !one_bridge_is_active()
+                    && (fuxian == 1)) ? (int16)(N.Final_Out * 10) : 0;
+
+    if (straight_test.state == STRAIGHT_RUNNING)
+    {
+        steer_adj += (int16)straight_test.steer_correction;
+    }
+    steer_adj += stair_get_heading_motor_adj();
+    steer_adj += one_bridge_get_motor_adj();
+    steer_adj += remote_ctrl_get_steer_adj();
+
+    if (rotation_is_active())
+    {
+        target_speed = 0;
+        rotation_run();
+        steer_adj += rotation.turn_duty;
+    }
+
+    return steer_adj;
+}
+
+static void body_motor_output_step(void)
+{
+    float output_ramp = startup_control_ramp();
+    int16 steer_adj = body_motor_steer_adj();
+    int16 motor_base = func_limit_ab(-(int16)roll_balance_cascade.angular_speed_cycle.out
+                                     + jump_motor_boost_duty,
+                                     M_MIN,
+                                     M_MAX);
+
+    if (output_ramp < 1.0f)
+    {
+        motor_base = (int16)((float)motor_base * output_ramp);
+        steer_adj  = (int16)((float)steer_adj  * output_ramp);
+    }
+    CYT2_D_motor_ctrl(
+        motor_base + steer_adj,
+        motor_base - steer_adj);
+}
+
 //================================================================================
 // PIT 回调 — 1ms 控制级联
 //================================================================================
@@ -927,25 +1051,15 @@ void pit_call_back(void)
         {
             CYT2_get_distance();
             Nag_System();
-
-            // 角度环 PID — 前向平衡控制
-            // 速度环输出反馈到角度目标，实现速度 → 倾角 → 加速度的闭环
-            float angle_target = (0.0f - roll_balance_cascade.posture_value.mechanical_zero)
-                               - (roll_balance_cascade.speed_cycle.out * SPEED_TO_ANGLE_GAIN);
-            pid_control(&roll_balance_cascade.angle_cycle,
-                angle_target,
-                -roll_balance_cascade.posture_value.pit);
         }
 
-        // 角速度环 PID — 每 1ms
-        pid_control(&roll_balance_cascade.angular_speed_cycle,
-            roll_balance_cascade.angle_cycle.out,
-            imu660rb_gyro_y);
+        stair_service_1ms();
+        balance_angle_loop_step();
+        balance_angular_speed_loop_step();
 
         one_bridge_service_1ms();
         car_steer_control();
         straight_test_run();
-        stair_service_1ms();
         remote_ctrl_update_1ms();
 
         if (startup_control_ramp() < 1.0f)
@@ -955,56 +1069,12 @@ void pit_call_back(void)
 
         if (sys_times % 20 == 0)
         {
-            car_speed = (motor_value.receive_left_speed_data - motor_value.receive_right_speed_data) / 2;
-            if (jump_cfg.state == JUMP_IDLE)
-            {
-                pid_control(&roll_balance_cascade.speed_cycle, target_speed, (float)car_speed);
-            }
-            else
-            {
-                roll_balance_cascade.speed_cycle.i_value = 0;
-                roll_balance_cascade.speed_cycle.out = 0;
-                roll_balance_cascade.speed_cycle.p_value_last = 0;
-            }
-
-            if (fuxian == 1)
-            {
-                pid_control(&track_cascade.track_cycle, N.Final_Out, 0);
-            }
+            balance_speed_loop_step();
         }
 
         if (STOP_FLAG == 1)
         {
-            float output_ramp = startup_control_ramp();
-            int16 steer_adj = ((jump_cfg.state == JUMP_IDLE)
-                            && !one_bridge_is_active()
-                            && (fuxian == 1)) ? (int16)(N.Final_Out * 10) : 0;
-            int16 motor_base = func_limit_ab(-(int16)roll_balance_cascade.angular_speed_cycle.out
-                                             + jump_motor_boost_duty,
-                                             M_MIN,
-                                             M_MAX);
-
-            if (straight_test.state == STRAIGHT_RUNNING)
-            {
-                steer_adj += (int16)straight_test.steer_correction;
-            }
-            steer_adj += one_bridge_get_motor_adj();
-            steer_adj += remote_ctrl_get_steer_adj();
-            // 旋转模式：驱动 rotation 状态机并叠加差速
-            if (rotation_is_active())
-            {
-                target_speed = 0;
-                rotation_run();
-                steer_adj += rotation.turn_duty;
-            }
-            if (output_ramp < 1.0f)
-            {
-                motor_base = (int16)((float)motor_base * output_ramp);
-                steer_adj  = (int16)((float)steer_adj  * output_ramp);
-            }
-            CYT2_D_motor_ctrl(
-                motor_base + steer_adj,
-                motor_base - steer_adj);
+            body_motor_output_step();
         }
         else
         {

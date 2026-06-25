@@ -39,7 +39,22 @@
 #define STAIR_LANDING_TICKS        90        // 固定时序：落地缓冲时间
 #define STAIR_RECOVER_TICKS        180       // 固定时序：恢复正常站姿时间
 #define STAIR_SEQ_INTERVAL_MS      950       // 连续三跳：两次起跳间固定等待时间
-#define STAIR_LCD_PERIOD_MS        20        // LCD 至少间隔 20ms 刷新一次
+#define STAIR_LCD_PERIOD_MS        80        // LCD 降低刷新频率，避免影响 1ms 控制
+#define STAIR_PX_KP                0.08f     // x 位置误差 -> 俯仰角偏置 P
+#define STAIR_PX_KI                0.0f      // x 位置误差 -> 俯仰角偏置 I
+#define STAIR_PX_KD                0.01f     // x 位置误差 -> 俯仰角偏置 D
+#define STAIR_PX_OUT_MAX           4.0f      // 俯仰角偏置限幅 (deg)
+#define STAIR_PX_ANGLE_DIR         1.0f      // 方向不对时改成 -1.0f
+#define STAIR_PX_INTEGRAL_MAX      40.0f     // x 位置积分限幅
+#define STAIR_PX_INTEGRAL_PRO      0.05f     // x 位置积分更新比例
+#define STAIR_PX_HOLD_SPEED        0.0f      // px 控制直接给姿态目标，速度环目标保持 0
+#define STAIR_YAW_KP               8.0f      // 航向误差 -> 电机差速 P
+#define STAIR_YAW_KI               0.0f
+#define STAIR_YAW_KD               0.6f
+#define STAIR_YAW_OUT_MAX          350.0f    // 航向锁差速限幅
+#define STAIR_YAW_INTEGRAL_MAX     60.0f
+#define STAIR_YAW_INTEGRAL_PRO     0.02f
+#define STAIR_YAW_MOTOR_DIR        1.0f      // 航向锁方向不对时改成 -1.0f
 #define STAIR_CHARGE_DUTY          1400      // 四腿同步下蹲量
 #define STAIR_LAUNCH_DUTY          1900      // 四腿同步伸腿量
 #define STAIR_PRELAND_DUTY         900       // 腾空后预着陆伸腿量
@@ -81,5 +96,8 @@ uint8 stair_seq_is_done(void);
 void stair_abort(void);
 void stair_service_1ms(void);
 uint8 stair_is_active(void);
+float stair_get_px_angle_offset(void);
+uint8 stair_px_angle_control_active(void);
+int16 stair_get_heading_motor_adj(void);
 
 #endif /* CODE_STAIR_TEST_H_ */
