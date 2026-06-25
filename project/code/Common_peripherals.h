@@ -52,10 +52,11 @@
 #define STEER_4_DIR      (1)                  // 舵机旋转方向(车体升高方向)
 #define STEER_4_CENTER   (4200)               // 舵机中心值(初始保持位置，大腿水平)
 
-#define STEER_1_DEFAULT_OFFSET  (0)
-#define STEER_2_DEFAULT_OFFSET  (0)
-#define STEER_3_DEFAULT_OFFSET  (0)
-#define STEER_4_DEFAULT_OFFSET  (0)
+#define STEER_STABLE_LOW_CG_OFFSET  (-160)  // 初始稳态低重心站姿偏移
+#define STEER_1_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
+#define STEER_2_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
+#define STEER_3_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
+#define STEER_4_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
 
 
 typedef struct

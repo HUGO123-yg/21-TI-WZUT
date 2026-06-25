@@ -33,8 +33,13 @@
 #define STAIR_FINAL_STOP_DIST      15.0f     // 最后一跳刹停距离上限 (cm)
 #define STAIR_FINAL_BRAKE_SPEED    -120.0f   // 最后一跳后的短反拖刹车速度
 #define STAIR_FINAL_BRAKE_MS       220       // 反拖刹车持续时间
+#define STAIR_PREPARE_TICKS        70        // 固定时序：起跳前降低重心时间
 #define STAIR_CHARGE_TICKS         100       // 上台阶蓄力时间 (ms)
 #define STAIR_LAUNCH_TICKS         45        // 起跳释放时间 (ms)
+#define STAIR_LANDING_TICKS        90        // 固定时序：落地缓冲时间
+#define STAIR_RECOVER_TICKS        180       // 固定时序：恢复正常站姿时间
+#define STAIR_SEQ_INTERVAL_MS      950       // 连续三跳：两次起跳间固定等待时间
+#define STAIR_LCD_PERIOD_MS        20        // LCD 至少间隔 20ms 刷新一次
 #define STAIR_CHARGE_DUTY          1400      // 四腿同步下蹲量
 #define STAIR_LAUNCH_DUTY          1900      // 四腿同步伸腿量
 #define STAIR_PRELAND_DUTY         900       // 腾空后预着陆伸腿量

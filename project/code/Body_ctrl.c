@@ -1,7 +1,6 @@
 #include "zf_common_headfile.h"
 
 #define WHEEL_CIRCUMFERENCE  (6.4f)
-#define ACC_CONV_FACTOR      (4098.0f)   // imu660rb LSB/g
 #define SPEED_TO_ANGLE_GAIN  (0.003f)    // 速度环输出 → 角度目标 (度/out单位)
 #define STRAIGHT_TEST_SPEED  (200.0f)
 #define STRAIGHT_SLOWDOWN_CM (9900.0f)
@@ -33,6 +32,9 @@ int16   left_motor_duty   = 0;
 int16   right_motor_duty  = 0;
 int     jump_time         = 0;          // 保留兼容，由 jump_cfg.elapsed 替代
 static int16 jump_motor_boost_duty = 0;
+static pid_cycle_struct jump_saved_angular_speed_cycle;
+static pid_cycle_struct jump_saved_angle_cycle;
+static pid_cycle_struct jump_saved_speed_cycle;
 
 //================================================================================
 // 跳跃配置 — 默认值
@@ -86,17 +88,6 @@ jump_config_struct jump_cfg = {
 };
 
 //================================================================================
-// 计算加速度幅值（单位：g）
-//================================================================================
-static float compute_acc_magnitude(void)
-{
-    float ax = (float)ACC_DATA_X / ACC_CONV_FACTOR;
-    float ay = (float)ACC_DATA_Y / ACC_CONV_FACTOR;
-    float az = (float)ACC_DATA_Z / ACC_CONV_FACTOR;
-    return sqrt(ax * ax + ay * ay + az * az);
-}
-
-//================================================================================
 // 计算当前总倾斜角（roll + pitch 合成）
 //================================================================================
 static float compute_tilt_angle(void)
@@ -104,6 +95,39 @@ static float compute_tilt_angle(void)
     float rol = func_abs(roll_balance_cascade.posture_value.rol);
     float pit = func_abs(roll_balance_cascade.posture_value.pit);
     return sqrt(rol * rol + pit * pit);
+}
+
+static void jump_reset_pid_memory(void)
+{
+    roll_balance_cascade.angle_cycle.i_value = 0;
+    roll_balance_cascade.angle_cycle.out = 0;
+    roll_balance_cascade.angle_cycle.p_value_last = 0;
+    roll_balance_cascade.angular_speed_cycle.i_value = 0;
+    roll_balance_cascade.angular_speed_cycle.out = 0;
+    roll_balance_cascade.angular_speed_cycle.p_value_last = 0;
+    roll_balance_cascade.speed_cycle.i_value = 0;
+    roll_balance_cascade.speed_cycle.out = 0;
+    roll_balance_cascade.speed_cycle.p_value_last = 0;
+    pitch_balance_cascade.angle_cycle.i_value = 0;
+    pitch_balance_cascade.angle_cycle.out = 0;
+    pitch_balance_cascade.angle_cycle.p_value_last = 0;
+}
+
+static void jump_apply_fixed_pid(void)
+{
+    roll_balance_cascade.angle_cycle = jump_saved_angle_cycle;
+    roll_balance_cascade.angular_speed_cycle = jump_saved_angular_speed_cycle;
+    roll_balance_cascade.speed_cycle = jump_saved_speed_cycle;
+
+    roll_balance_cascade.angle_cycle.i = 0.0f;
+    roll_balance_cascade.angle_cycle.d = 0.0f;
+    roll_balance_cascade.angular_speed_cycle.i = 0.0f;
+    roll_balance_cascade.angular_speed_cycle.d = 0.0f;
+    roll_balance_cascade.speed_cycle.p = 0.0f;
+    roll_balance_cascade.speed_cycle.i = 0.0f;
+    roll_balance_cascade.speed_cycle.d = 0.0f;
+
+    jump_reset_pid_memory();
 }
 
 static uint8 startup_zero_ready = 0;
@@ -194,17 +218,12 @@ static float jump_phase_progress(uint16 elapsed, uint16 total)
 
 static void jump_restore_saved_control(uint8 stop_speed)
 {
-    float angle_p = (jump_cfg.stored_p_angle > 0.0f) ? jump_cfg.stored_p_angle
-                                                     : roll_balance_cascade_resave.angle_cycle.p;
-    float speed_p = (jump_cfg.stored_p_speed > 0.0f) ? jump_cfg.stored_p_speed
-                                                     : roll_balance_cascade_resave.speed_cycle.p;
-
-    roll_balance_cascade.angle_cycle.p = angle_p;
-    roll_balance_cascade.speed_cycle.p = speed_p;
-    roll_balance_cascade.angle_cycle.i_value = 0;
-    roll_balance_cascade.speed_cycle.i_value = 0;
-    roll_balance_cascade.angular_speed_cycle.i_value = 0;
+    roll_balance_cascade.angle_cycle = jump_saved_angle_cycle;
+    roll_balance_cascade.angular_speed_cycle = jump_saved_angular_speed_cycle;
+    roll_balance_cascade.speed_cycle = jump_saved_speed_cycle;
     pitch_balance_cascade.angle_cycle.i_value = 0;
+    pitch_balance_cascade.angle_cycle.out = 0;
+    pitch_balance_cascade.angle_cycle.p_value_last = 0;
 
     target_speed = stop_speed ? 0.0f : jump_cfg.stored_speed_target;
 }
@@ -272,14 +291,15 @@ uint8 jump_trigger(void)
     jump_cfg.last_trigger_result = JUMP_TRIGGER_OK;
 
     // 保存进入跳跃前的 PID 参数，用于恢复
-    jump_cfg.stored_p_angle      = roll_balance_cascade_resave.angle_cycle.p;
-    jump_cfg.stored_p_speed      = roll_balance_cascade_resave.speed_cycle.p;
+    jump_saved_angle_cycle         = roll_balance_cascade.angle_cycle;
+    jump_saved_angular_speed_cycle = roll_balance_cascade.angular_speed_cycle;
+    jump_saved_speed_cycle         = roll_balance_cascade.speed_cycle;
+    jump_cfg.stored_p_angle            = roll_balance_cascade.angle_cycle.p;
+    jump_cfg.stored_p_speed            = roll_balance_cascade.speed_cycle.p;
     jump_cfg.stored_speed_target = target_speed;
 
-    roll_balance_cascade.angle_cycle.i_value = 0;
-    roll_balance_cascade.speed_cycle.i_value = 0;
-    roll_balance_cascade.angular_speed_cycle.i_value = 0;
-    pitch_balance_cascade.angle_cycle.i_value = 0;
+    jump_apply_fixed_pid();
+    target_speed = jump_cfg.stored_speed_target;
 
     return JUMP_TRIGGER_OK;
 }
@@ -289,10 +309,15 @@ uint8 jump_trigger(void)
 //================================================================================
 void jump_abort(void)
 {
+    uint8 was_active = (jump_cfg.state != JUMP_IDLE) ? 1 : 0;
+
     jump_enter_state(JUMP_IDLE);
     jump_motor_boost_duty = 0;
 
-    jump_restore_saved_control(1);
+    if (was_active)
+    {
+        jump_restore_saved_control(1);
+    }
     jump_set_neutral_leg_offset();
 }
 
@@ -446,47 +471,19 @@ void car_state_calculate(void)
     }
 
     //---------- 跳跃中的 PID 管理 ----------
-    float pid_scale;
-    switch (jump_cfg.state)
-    {
-        case JUMP_PREPARE:
-            // 预备阶段：适度降低 PID，允许前倾
-            pid_scale = 0.6f;
-            break;
-        case JUMP_CHARGE:
-            // 蓄力阶段：进一步降低 PID
-            pid_scale = 0.4f;
-            break;
-        case JUMP_LAUNCH:
-            // 起跳阶段：大幅降低 PID，让跳跃动作不受干扰
-            pid_scale = 0.2f;
-            break;
-        case JUMP_AIRBORNE:
-            pid_scale = jump_cfg.airborne_pid_scale;
-            break;
-        case JUMP_LANDING:
-            pid_scale = jump_cfg.landing_pid_scale;
-            break;
-        case JUMP_RECOVER:
-            // 恢复阶段：线性爬升
-            {
-                float progress = jump_phase_progress(jump_cfg.elapsed, jump_cfg.recover_ticks);
-                pid_scale = jump_cfg.landing_pid_scale
-                          + (1.0f - jump_cfg.landing_pid_scale) * progress;
-                if (pid_scale > 1.0f) pid_scale = 1.0f;
-
-                // 速度目标恢复
-                target_speed = jump_cfg.stored_speed_target * progress;
-            }
-            break;
-        default:
-            pid_scale = 0.5f;
-            break;
-    }
-
-    roll_balance_cascade.angle_cycle.p  = jump_cfg.stored_p_angle * pid_scale;
-    roll_balance_cascade.speed_cycle.p  = jump_cfg.stored_p_speed * pid_scale;
-    roll_balance_cascade.angle_cycle.i_value  = 0;
+    // 固定时序跳跃时关闭速度环，只保留角度环 / 角速度环原始 Kp。
+    roll_balance_cascade.angle_cycle.p = jump_saved_angle_cycle.p;
+    roll_balance_cascade.angle_cycle.i = 0.0f;
+    roll_balance_cascade.angle_cycle.d = 0.0f;
+    roll_balance_cascade.angular_speed_cycle.p = jump_saved_angular_speed_cycle.p;
+    roll_balance_cascade.angular_speed_cycle.i = 0.0f;
+    roll_balance_cascade.angular_speed_cycle.d = 0.0f;
+    roll_balance_cascade.speed_cycle.p = 0.0f;
+    roll_balance_cascade.speed_cycle.i = 0.0f;
+    roll_balance_cascade.speed_cycle.d = 0.0f;
+    roll_balance_cascade.speed_cycle.i_value = 0;
+    roll_balance_cascade.speed_cycle.out = 0;
+    roll_balance_cascade.speed_cycle.p_value_last = 0;
     pitch_balance_cascade.angle_cycle.i_value = 0;
 }
 
@@ -589,13 +586,6 @@ void car_steer_control(void)
 
     jump_cfg.elapsed++;
 
-    //---------- IMU 检测 ----------
-    float acc_mag = compute_acc_magnitude();
-    if (acc_mag > jump_cfg.peak_acc_magnitude)
-    {
-        jump_cfg.peak_acc_magnitude = acc_mag;
-    }
-
     jump_motor_boost_duty = 0;
 
     switch (jump_cfg.state)
@@ -654,36 +644,18 @@ void car_steer_control(void)
             // forward momentum: extra motor boost
             target_speed = jump_cfg.stored_speed_target + jump_cfg.forward_motor_boost * 0.006f;
 
-            if ((jump_cfg.elapsed > 8 && acc_mag < jump_cfg.airborne_acc_threshold)
-             || jump_cfg.elapsed >= jump_cfg.launch_ticks)
+            if (jump_cfg.elapsed >= jump_cfg.launch_ticks)
             {
                 jump_enter_state(JUMP_AIRBORNE);
             }
             break;
 
         //----------------------------------------------------------------
-        // AIRBORNE — IMU 检测失重，等待着陆
+        // AIRBORNE — 固定腾空时间，等待落地缓冲
         //----------------------------------------------------------------
         case JUMP_AIRBORNE:
             // 腿部微伸 — 预着陆位，增大落地缓冲行程
-            // legs slightly extended — pre-landing position for impact absorption
             jump_set_all_leg_offset(jump_cfg.preland_duty);
-
-            // 大角度倾斜 → 强制进入着陆
-            // excessive tilt → force landing
-            if (compute_tilt_angle() > jump_cfg.max_tilt_abort)
-            {
-                jump_enter_state(JUMP_LANDING);
-                break;
-            }
-
-            // IMU 检测着陆冲击
-            // IMU detects landing impact
-            if (jump_cfg.elapsed > 20 && acc_mag > jump_cfg.landing_acc_threshold)
-            {
-                jump_enter_state(JUMP_LANDING);
-                break;
-            }
 
             // 超时保护
             // timeout protection
@@ -984,7 +956,16 @@ void pit_call_back(void)
         if (sys_times % 20 == 0)
         {
             car_speed = (motor_value.receive_left_speed_data - motor_value.receive_right_speed_data) / 2;
-            pid_control(&roll_balance_cascade.speed_cycle, target_speed, (float)car_speed);
+            if (jump_cfg.state == JUMP_IDLE)
+            {
+                pid_control(&roll_balance_cascade.speed_cycle, target_speed, (float)car_speed);
+            }
+            else
+            {
+                roll_balance_cascade.speed_cycle.i_value = 0;
+                roll_balance_cascade.speed_cycle.out = 0;
+                roll_balance_cascade.speed_cycle.p_value_last = 0;
+            }
 
             if (fuxian == 1)
             {
