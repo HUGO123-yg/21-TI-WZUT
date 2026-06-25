@@ -1,10 +1,10 @@
 #include "zf_common_headfile.h"
 
 
-// �û����õ�Ŀ���ٶȣ����ɰ����ĵ���
-float user_set_speed = 200; // ��ʼĿ���ٶ�Ϊ200
+// 用户设置的目标速度，回放时按此速度行驶
+float user_set_speed = 200; // 初始目标速度为200
 
-float Nav_read[Read_MaxSize]; // ��5cm��Ļ�,1000������50m
+float Nav_read[Read_MaxSize]; // 以5cm为单位的回放缓冲，1000个点对应50m
 Nag N;
 
 static volatile uint8 nag_flash_write_pending = 0;
@@ -17,10 +17,10 @@ static uint16 nag_read_count                  = 0;
 static uint16 nag_read_copied                 = 0;
 
 
-// ============== ��·��ѡ����� ==============
-uint8 Nag_PathSelect = 1;  // Ĭ��ѡ��·��1
+// ============== 路径选择相关 ==============
+uint8 Nag_PathSelect = 1;  // 默认选择路径1
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ����·����Ż�ȡ��ʼҳ
+// 函数功能：     按路径编号获取起始页
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 get_path_start_page(uint8 path_id)
 {
@@ -34,7 +34,7 @@ static uint8 get_path_start_page(uint8 path_id)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ����·����Ż�ȡ����ҳ
+// 函数功能：     按路径编号获取结束页
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 get_path_end_page(uint8 path_id)
 {
@@ -189,7 +189,7 @@ static void nag_stop_replay(void)
     STOP_FLAG    = 0;
 }
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ��·����ʼ���ߵ� (����Flash_page_indexΪ��Ӧ·������ʼҳ)
+// 函数功能：     按路径编号初始化惯导 (设置Flash_page_index为对应路径的起始页)
 //-------------------------------------------------------------------------------------------------------------------
 void Init_Nag_Path(uint8 path_id)
 {
@@ -208,11 +208,11 @@ void Init_Nag_Path(uint8 path_id)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     д��Ԫ����ҳ (��3��·����Save_index��д��page 1)
-// ��ע��Ϣ     ��Ԫ����ҳ��:
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+0] = ·��1��Save_index
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+1] = ·��2��Save_index
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+2] = ·��3��Save_index
+// 函数功能：     写入元数据页 (把3条路径的Save_index写入page 1)
+// 备注信息：     元数据页布局:
+    //               buffer[NAG_META_SAVE_INDEX_OFFSET+0] = 路径1的Save_index
+    //               buffer[NAG_META_SAVE_INDEX_OFFSET+1] = 路径2的Save_index
+    //               buffer[NAG_META_SAVE_INDEX_OFFSET+2] = 路径3的Save_index
 //-------------------------------------------------------------------------------------------------------------------
 void flash_Nag_Write_Meta(void)
 {
@@ -229,7 +229,7 @@ void flash_Nag_Write_Meta(void)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ��ȡԪ����ҳ����ȡָ��·����Save_index
+// 函数功能：     读取元数据页，读取指定路径的Save_index
 //-------------------------------------------------------------------------------------------------------------------
 uint16 Get_Path_SaveIndex(uint8 path_id)
 {
@@ -259,41 +259,41 @@ void Nag_Clear_Path_Meta(uint8 path_id)
 
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ��ȡƫ���ǵ��̺߳���
-// ����˵��     ��ȡƫ���ǵ��̺߳�����ͨ���л�N.End_f���л��߳�
-// ���ز���     void
-// ʹ��ʾ��     �û��������
-// ��ע��Ϣ
+// 函数功能：     读取偏航角的线程函数
+// 函数说明：     读取偏航角的线程函数，通过切换N.End_f进行切换线程
+// 返回参数：     void
+// 使用示例：     用户不要调用
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_Read()
 {
     switch (N.End_f)
     {
     case 0:
-        Run_Nag_Save(); // Ĭ��ִ�к���
+        Run_Nag_Save(); // 默认执行记录函数
         break;
     case 1:
-        nag_request_flash_write(1); // д�����һҳ����֤falsh�洢��
+        nag_request_flash_write(1); // 写入最后一页，保证flash存储完整
         break;
     case 2:
 //      gpio_set_level(BUZZER_PIN,1);
-        N.End_f++; // �����߳�
+        N.End_f++; // 退出线程
         break;
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ��������ƫ�����
-// ����˵��     N.Final_OutΪ�������ɵ�ƫ���С
-// ���ز���     void
-// ʹ��ʾ��     �û��������
-// ��ע��Ϣ
+// 函数功能：     执行回放偏差计算
+// 函数说明：     N.Final_Out为回放生成的偏差角度
+// 返回参数：     void
+// 使用示例：     用户不要调用
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_Run()
 {
-    Run_Nag_GPS();    // ƫ���Ƕ�ȡ����
-    if (N.Nag_Stop_f) // ��ֹ��ת
+    Run_Nag_GPS();    // 偏航角度读取函数
+    if (N.Nag_Stop_f) // 终止回放
     {
         N.Final_Out = 0;
         target_speed = 0;
@@ -305,24 +305,24 @@ void Nag_Run()
 //      N.Final_Out = (Nag_Yaw - N.Angle_Run);
 }
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ƫ���Ǵ���
-// ����˵��     ����ȡ��YAW�洢��flash�д洢
-// ���ز���     void
-// ʹ��ʾ��     �û��������
-// ��ע��Ϣ
+// 函数功能：     偏航角存储
+// 函数说明：     将获取的YAW存储到flash中存储
+// 返回参数：     void
+// 使用示例：     用户不要调用
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 
-//���ؼ�¼���룬ֻ��Ҫ��¼ƫ���ǣ������Ե�λ����ʽ��¼
+//关键记录里程，只需要记录偏航角，以离散单位形式记录
 void Run_Nag_Save(void)
 {
     uint16 path_capacity = get_path_capacity(Nag_PathSelect);
 
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // ���̼ƶ�ȡ�����ұ�������ʹ�ø������Ļ�����ܱ�������
+    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // 里程计取值，采用左右编码器平均值，该里程计能被编码器更新
 
     if (nag_flash_write_pending)
         return;
 
-//    N.Mileage_All =Car.mileage;//��̼ƶ�ȡ
+//    N.Mileage_All =Car.mileage;//里程计取值
     // printf("Mileage_All=%f\r\n", N.Mileage_All);
 
     if (N.Save_index >= path_capacity)
@@ -331,24 +331,24 @@ void Run_Nag_Save(void)
         return;
     }
 
-    if (N.size >= NAG_POINTS_PER_PAGE) // ��������ҳ�е�flash��С��ʱ��д��һ�Σ���ֹ�ظ�д��
+    if (N.size >= NAG_POINTS_PER_PAGE) // 缓存已满页中的flash大小时才写入一次，防止重复写入
     {
         nag_request_flash_write(0);
         return;
     }
 
-    if (N.Mileage_All >= Nag_Set_mileage) // ÿ��Nag_Set_mileage��һ��
+    if (N.Mileage_All >= Nag_Set_mileage) // 每隔Nag_Set_mileage记录一次
     {
-        int32 Save = (int32)(Nag_Yaw * 100);            // ��ȡ��ƫ���ǷŴ�100��������ʹ��Float�������洢
-        flash_union_buffer[N.size++].int32_type = Save; // ��ƫ����д�뻺����
+        int32 Save = (int32)(Nag_Yaw * 100);            // 获取的偏航角放大100倍，此处使用Float类型转换存储
+        flash_union_buffer[N.size++].int32_type = Save; // 将偏航角写入缓冲区
         N.Save_index++;
         // printf("Save=%f\r\n", (float)Save / 100.0f);
 
 
-        if (N.Mileage_All > 0)  //5CMΪһ�����ڣ�����һ������ȷ��һ��ֻ����5CM,��������������
-            N.Mileage_All -= Nag_Set_mileage; // �������̼�����//���浽flash
+        if (N.Mileage_All > 0)  //5CM为一个记录区间，接着下一个区间确保下一个只记录5CM,执行数值修正
+            N.Mileage_All -= Nag_Set_mileage; // 减去走过里程计后//保存到flash
         else
-            N.Mileage_All += Nag_Set_mileage; // ����
+            N.Mileage_All += Nag_Set_mileage; // 修正
 
         if (N.Save_index >= path_capacity)
         {
@@ -360,17 +360,17 @@ void Run_Nag_Save(void)
         }
     }
 }
-// ƫ���Ǹ���
+// 偏航角跟随
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ƫ���Ǹ���
-// ����˵��     ��ȡflash�д洢��YAW
-// ���ز���     void
-// ʹ��ʾ��     �û��������
-// ��ע��Ϣ
+// 函数功能：     偏航角跟随
+// 函数说明：     读取flash中存储的YAW
+// 返回参数：     void
+// 使用示例：     用户不要调用
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void Run_Nag_GPS(void)
 {
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // ���̼ƶ�ȡ�����ұ�������ʹ�ø������Ļ�����ܱ�������
+    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // 里程计取值，采用左右编码器平均值，该里程计能被编码器更新
     uint16 prospect = 0;
 
     if (N.Save_index < 2)
@@ -386,24 +386,24 @@ void Run_Nag_GPS(void)
             nag_stop_replay();
             return;
         }
-        N.Run_index++; // �����Ҫ����Ȧ����ֱ�Ӱ������ֵΪ0.
+        N.Run_index++; // 无需需要精确圈数，直接把运行赋值为0.
 
-        prospect = N.Run_index; // ǰհ
+        prospect = N.Run_index; // 前瞻
         if (prospect > N.Save_index - 2)
-            prospect = N.Save_index - 2;             // Խ�籣��
-        N.Angle_Run = (Nav_read[prospect] / 100.0f); // ��ȡ��ƫ���Ǹ��֣�����100��ԭ
+            prospect = N.Save_index - 2;             // 越界保护
+        N.Angle_Run = (Nav_read[prospect] / 100.0f); // 读取的偏航角跟随，除以100还原
         // printf("N.Angle_Run=%f,N.Save_index=%d, N.Flash_page_index=%d,N.Nag_Stop_f=%d,N.Run_index=%d\r\n", N.Angle_Run, N.Save_index, N.Flash_page_index, N.Nag_Stop_f, N.Run_index);
         if (N.Mileage_All > 0)
-            N.Mileage_All -= Nag_Set_mileage; // �������̼�����//���浽flash
+            N.Mileage_All -= Nag_Set_mileage; // 减去走过里程计后//保存到flash
         else
-            N.Mileage_All += Nag_Set_mileage; // ����
+            N.Mileage_All += Nag_Set_mileage; // 修正
     }
 }
 //-------------------------------------------------------------------------------------------------------------------
-// �������     �ߵ�������ʼ��
-// ���ز���     void
-// ʹ��ʾ��     �������ִ�п�ʼ
-// ��ע��Ϣ
+// 函数功能：     惯导系统初始化
+// 返回参数：     void
+// 使用示例：     主函数中执行开始
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void Init_Nag(void)
 {
@@ -412,23 +412,23 @@ void Init_Nag(void)
     flash_buffer_clear();
 }
 //-------------------------------------------------------------------------------------------------------------------
-// �������     ���Ե���ִ�к���
-// ����˵��     index           ����
-// ����˵��     type            ����ֵ
-// ���ز���     void
-// ʹ��ʾ��     �����ж���
-// ��ע��Ϣ
+// 函数功能：     惯导控制执行函数
+// 函数说明：     index           索引
+// 函数说明：     type            设置值
+// 返回参数：     void
+// 使用示例：     中断中调用
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_System(void)
 {
-    // ������
+    // 保护判断
     if (!N.Nag_SystemRun_Index || N.Nag_Stop_f)
         return;
 
     switch (N.Nag_SystemRun_Index)
     {
     case NAG_RUN_RECORD:
-        Nag_Read(); // 1�Ƕ�ȡ
+        Nag_Read(); // 1是读取
         break;
     case NAG_RUN_PRELOAD:
         nag_request_flash_read();
@@ -440,12 +440,12 @@ void Nag_System(void)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// �������     һ���Զ�ȡ����ֻ��ȡһ�Σ�
-// ����˵��     index           ����
-// ����˵��     type            ����ֵ
-// ���ز���     void
-// ʹ��ʾ��     ����������ֱ�ӵ��ã�demo����ʾ����
-// ��ע��Ϣ
+// 函数功能：     一次性读取（只读取一次）
+// 函数说明：     index           索引
+// 函数说明：     type            设置值
+// 返回参数：     void
+// 使用示例：     惯导控制中直接调用，demo中示例函数
+// 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void NagFlashRead(void)
 {
@@ -539,36 +539,36 @@ static void nag_flash_read_step(void)
 }
 
 /**
- * @brief ����һ�����ߵ�¼�ƣ���������ֹ¼�ƣ������������ߵ�����
- *N.Save_index = 0; // �������ã���ֹԽ��
+ * @brief 开启一次惯导记录，完成后终止记录，完成后启动惯导回放
+ *N.Save_index = 0; // 调试用，防止越界
  */
 uint8 fuxian = 0;
 void control_navigation(void)
 {
-    if (key1_flag == 1) // ����1���ƹߵ�������ֹͣ
+    if (key1_flag == 1) // 按键1控制惯导开始或停止
     {
-        N.Nag_SystemRun_Index = NAG_RUN_RECORD; // �����ߵ���ȡ������
+        N.Nag_SystemRun_Index = NAG_RUN_RECORD; // 开启惯导读取记录
         key1_flag = 0;
     }
-    if (key3_flag == 1 && N.Nag_SystemRun_Index == NAG_RUN_RECORD) // ����3���ƹߵ���ȡ������
+    if (key3_flag == 1 && N.Nag_SystemRun_Index == NAG_RUN_RECORD) // 按键3控制惯导读取记录
     {
-        N.End_f = 1; // ��ֹ�ߵ����У�ֹͣ�ɼ�
+        N.End_f = 1; // 终止惯导进行，停止采集
         key3_flag = 0;
     }
-    if (key2_flag == 1) // ����2���ƹߵ�������ʼ��
+    if (key2_flag == 1) // 按键2控制惯导回放开始
     {
         Init_Nag_Path(Nag_PathSelect);
-        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD; // ���ֹߵ�
-        fuxian = 0;                    // �켣������
-        target_speed = 0;              // ·����ȡ���֮������
+        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD; // 开启惯导
+        fuxian = 0;                    // 轨迹清零
+        target_speed = 0;              // 路径读取完成之后再赋值
         key2_flag = 0;
     }
-    // �����Ŀ���Ŀ���ٶȵ�������һ������50
+    // 按键4控制目标目标速度的递增，每按键一次递增50
     if (key4_flag == 1)
     {
         user_set_speed += 50;
         if (user_set_speed > 700)
-            user_set_speed = 50; // ����700�ص�50
+            user_set_speed = 50; // 超过700回到50
         key4_flag = 0;
     }
 
@@ -637,7 +637,7 @@ void Nag_Service(void)
 }
 
 
-/**************************�ߵ���ȡFlash********************************/
+/**************************惯导读取Flash********************************/
 void flash_Nag_Write(void)
 {
     if (N.size == 0)
@@ -667,10 +667,10 @@ void flash_Nag_Read(void)
 
 
 /**
- * @brief �Ƕȴ�����-180~180�ȷ�Χ��
+ * @brief 角度处理至-180~180度范围内
  *
- * @param angle ����Ƕ�
- * @return double ������Ƕ�
+ * @param angle 输入角度
+ * @return double 返回角度
  */
 float angle_plan(float angle)
 {
