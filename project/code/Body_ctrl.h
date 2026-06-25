@@ -13,6 +13,14 @@ typedef enum
     JUMP_RECOVER    = 6,    // 恢复 — 逐渐恢复 PID 增益和速度 / recover - gradual PID restoration
 } jump_state_enum;
 
+typedef enum
+{
+    JUMP_TRIGGER_OK          = 0,    // 触发成功
+    JUMP_TRIGGER_BUSY        = 1,    // 跳跃状态机忙
+    JUMP_TRIGGER_NOT_RUNNING = 2,    // 车体未运行 / STOP
+    JUMP_TRIGGER_TILT        = 3,    // 倾角过大
+} jump_trigger_result_enum;
+
 //================================================================================
 // 跳跃配置结构体 — 全部可自定义
 // jump configuration struct — fully configurable
@@ -71,6 +79,7 @@ typedef struct
     float   stored_p_angle;         // 进入跳跃前的角度 P（用于恢复）
     float   stored_p_speed;         // 进入跳跃前的速度 P（用于恢复）
     float   stored_speed_target;    // 进入跳跃前的目标速度
+    uint8   last_trigger_result;    // 最近一次触发结果（jump_trigger_result_enum）
 } jump_config_struct;
 
 //================================================================================
@@ -86,7 +95,7 @@ extern jump_config_struct  jump_cfg;
 
 // 触发跳跃（由按键/菜单/视觉调用）
 // trigger jump (called by key/menu/vision)
-void jump_trigger(void);
+uint8 jump_trigger(void);
 
 // 终止跳跃（紧急停止）
 // abort jump (emergency stop)
@@ -104,11 +113,16 @@ void jump_config_default(void);
 // check if jump can be triggered
 uint8 jump_can_trigger(void);
 
+const char *jump_state_name(uint8 state);
+const char *jump_trigger_result_name(uint8 result);
+uint8 jump_is_active(void);
+
 //---------- 原有 extern 保持不变 ----------
 // existing externs preserved
 extern float  target_speed;
 extern volatile uint32 sys_times;
 extern int16 left_motor_duty, right_motor_duty;
+extern int    run_state;
 extern int    STOP_FLAG;
 
 //=================================================================

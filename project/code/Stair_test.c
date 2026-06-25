@@ -30,9 +30,11 @@ typedef struct {
     uint8            jump_index;
     uint8            jump_ok;          // 本次跳跃是否触发成功
     uint8            fail_reason;      // 0=无故障，1=触发失败，2=超距未停
+    uint8            last_trigger_result;
     float            start_mileage;
     float            stop_mileage;
     uint16           phase_timer;
+    uint16           trigger_wait_timer;
 } stair_ctx;
 
 static stair_ctx ctx_jump;
@@ -52,14 +54,16 @@ static float current_mileage(void)
 
 static void stair_ctx_begin(stair_ctx *c)
 {
-    c->active        = 1;
-    c->phase         = STAIR_PHASE_RUNUP;
-    c->jump_index    = 0;
-    c->jump_ok       = 0;
-    c->fail_reason   = 0;
-    c->start_mileage = current_mileage();
-    c->stop_mileage  = 0.0f;
-    c->phase_timer   = 0;
+    c->active             = 1;
+    c->phase              = STAIR_PHASE_RUNUP;
+    c->jump_index         = 0;
+    c->jump_ok            = 0;
+    c->fail_reason        = 0;
+    c->last_trigger_result = JUMP_TRIGGER_OK;
+    c->start_mileage      = current_mileage();
+    c->stop_mileage       = 0.0f;
+    c->phase_timer        = 0;
+    c->trigger_wait_timer = 0;
     stop_stable_count = 0;
 }
 
@@ -76,7 +80,7 @@ static uint8 speed_stopped(void)
         stop_stable_count++;
     else
         stop_stable_count = 0;
-    return (stop_stable_count > 10) ? 1 : 0;
+    return (stop_stable_count >= STAIR_STOP_STABLE_MS) ? 1 : 0;
 }
 
 // 将 jump_cfg 设为上台阶参数
@@ -99,11 +103,103 @@ static void restore_jump_defaults(void)
     jump_config_default();
 }
 
+static void stair_finish(stair_ctx *c, uint8 ok, uint8 fail_reason)
+{
+    target_speed = 0.0f;
+    c->jump_ok = ok;
+    c->fail_reason = fail_reason;
+    c->active = 0;
+    c->phase = STAIR_PHASE_DONE;
+}
+
+static void stair_finish_with_defaults(stair_ctx *c, uint8 ok, uint8 fail_reason)
+{
+    restore_jump_defaults();
+    stair_finish(c, ok, fail_reason);
+}
+
+static uint8 stair_trigger_jump(stair_ctx *c)
+{
+    uint8 result = jump_trigger();
+
+    c->last_trigger_result = result;
+    c->jump_ok = (result == JUMP_TRIGGER_OK) ? 1 : 0;
+    c->fail_reason = c->jump_ok ? STAIR_FAIL_NONE : STAIR_FAIL_TRIGGER;
+    c->phase = STAIR_PHASE_JUMPING;
+    c->phase_timer = 0;
+    c->trigger_wait_timer = 0;
+    if (!c->jump_ok)
+    {
+        target_speed = 0.0f;
+    }
+
+    return c->jump_ok;
+}
+
+static uint8 stair_seq_try_trigger_jump(void)
+{
+    if (jump_can_trigger())
+    {
+        target_speed = STAIR_RUNUP_SPEED;
+        return stair_trigger_jump(&ctx_seq);
+    }
+
+    ctx_seq.trigger_wait_timer++;
+    target_speed = STAIR_TRIGGER_HOLD_SPEED;
+
+    if (ctx_seq.trigger_wait_timer >= STAIR_TRIGGER_WAIT_MS)
+    {
+        target_speed = STAIR_RUNUP_SPEED;
+        return stair_trigger_jump(&ctx_seq);
+    }
+
+    return 0;
+}
+
+static void stair_seq_apply_final_brake(void)
+{
+    if ((ctx_seq.phase_timer <= STAIR_FINAL_BRAKE_MS)
+        && (car_speed > (int16)STAIR_STOP_SPEED))
+    {
+        target_speed = STAIR_FINAL_BRAKE_SPEED;
+    }
+    else
+    {
+        target_speed = 0.0f;
+    }
+}
+
+static uint8 stair_jump_timeout(stair_ctx *c, uint8 restore_defaults)
+{
+    if (c->phase_timer <= STAIR_JUMP_TIMEOUT_MS)
+        return 0;
+
+    jump_abort();
+    if (restore_defaults)
+        restore_jump_defaults();
+
+    stair_finish(c, 0, STAIR_FAIL_JUMP_TO);
+    return 1;
+}
+
+static uint8 stair_stop_timeout(stair_ctx *c, uint8 restore_defaults)
+{
+    if (c->phase_timer <= STAIR_STOP_TIMEOUT_MS)
+        return 0;
+
+    if (restore_defaults)
+        restore_jump_defaults();
+
+    stair_finish(c, 0, STAIR_FAIL_STOP_TO);
+    return 1;
+}
+
 // ============================================================
 // 公用 LCD 显示
 // ============================================================
 static void stair_display(const char *title, stair_phase_enum phase,
-                          uint8 jump_ok, uint8 fail_reason, uint8 jump_idx, uint8 jump_total)
+                          uint8 jump_ok, uint8 fail_reason, uint8 last_trigger_result,
+                          float distance_cm, uint8 jump_idx, uint8 jump_total)
 {
     ips_show_string(8 * 0, 16 * 0, title);
     ips_show_string(8 * 0, 16 * 2, "Phase:");
@@ -122,11 +218,12 @@ static void stair_display(const char *title, stair_phase_enum phase,
         ips_show_string(8 * 10, 16 * 2, jump_ok ? "Done!" : "FAIL");
         break;
     }
-    ips_show_string(8 * 0, 16 * 3, "State:"); ips_show_int(8 * 10, 16 * 3, jump_cfg.state, 3);
+    ips_show_string(8 * 0, 16 * 3, "State:"); ips_show_string(8 * 10, 16 * 3, jump_state_name(jump_cfg.state));
     ips_show_string(8 * 0, 16 * 4, "Speed:"); ips_show_float(8 * 10, 16 * 4, (float)car_speed, 5, 1);
-    ips_show_string(8 * 0, 16 * 5, "Dist:");  ips_show_float(8 * 10, 16 * 5, current_mileage(), 6, 2);
+    ips_show_string(8 * 0, 16 * 5, "Dist:");  ips_show_float(8 * 10, 16 * 5, distance_cm, 6, 2);
     ips_show_string(8 * 0, 16 * 6, "Fail:");  ips_show_int(8 * 10, 16 * 6, fail_reason, 2);
     ips_show_string(8 * 13, 16 * 6, jump_ok ? "OK" : "--");
+    ips_show_string(8 * 0, 16 * 8, "Trig:");  ips_show_string(8 * 10, 16 * 8, jump_trigger_result_name(last_trigger_result));
     if (jump_total > 1)
     {
         ips_show_string(8 * 0, 16 * 7, "Jump:");  ips_show_int(8 * 10, 16 * 7, jump_idx, 1);
@@ -140,12 +237,13 @@ static void stair_display(const char *title, stair_phase_enum phase,
 // ============================================================
 void stair_jump_start(void)
 {
+    stair_abort();
     restore_jump_defaults();               // 清理可能残留的上台阶参数
     stair_ctx_begin(&ctx_jump);
     target_speed          = JUMP_RUNUP_SPEED;
 }
 
-void stair_jump_run(void)
+static void stair_jump_step(void)
 {
     if (!ctx_jump.active) return;
     ctx_jump.phase_timer++;
@@ -155,20 +253,18 @@ void stair_jump_run(void)
     case STAIR_PHASE_RUNUP:
         if (ctx_jump.phase_timer > JUMP_RUNUP_TICKS)
         {
-            jump_trigger();
-            ctx_jump.jump_ok    = (jump_cfg.state != JUMP_IDLE);
-            ctx_jump.fail_reason = ctx_jump.jump_ok ? 0 : 1;
-            ctx_jump.phase      = STAIR_PHASE_JUMPING;
-            ctx_jump.phase_timer = 0;
+            (void)stair_trigger_jump(&ctx_jump);
         }
         break;
 
     case STAIR_PHASE_JUMPING:
+        if (stair_jump_timeout(&ctx_jump, 0))
+        {
+            break;
+        }
         if (!ctx_jump.jump_ok && ctx_jump.phase_timer > 10)
         {
-            target_speed = 0;
-            ctx_jump.active = 0;
-            ctx_jump.phase  = STAIR_PHASE_DONE;
+            stair_finish(&ctx_jump, 0, ctx_jump.fail_reason);
         }
         else if (jump_cfg.state == JUMP_IDLE && ctx_jump.phase_timer > 10)
         {
@@ -183,15 +279,23 @@ void stair_jump_run(void)
     case STAIR_PHASE_STOPPING:
         if (speed_stopped())
         {
-            ctx_jump.phase = STAIR_PHASE_DONE;
+            stair_finish(&ctx_jump, 1, STAIR_FAIL_NONE);
+        }
+        else
+        {
+            (void)stair_stop_timeout(&ctx_jump, 0);
         }
         break;
 
     case STAIR_PHASE_DONE:
         break;
     }
+}
 
-    stair_display("Jump Test", ctx_jump.phase, ctx_jump.jump_ok, ctx_jump.fail_reason, 0, 0);
+void stair_jump_run(void)
+{
+    stair_display("Jump Test", ctx_jump.phase, ctx_jump.jump_ok, ctx_jump.fail_reason,
+                  ctx_jump.last_trigger_result, mileage_delta(&ctx_jump), 0, 0);
 }
 
 uint8 stair_jump_is_done(void)
@@ -204,11 +308,12 @@ uint8 stair_jump_is_done(void)
 // ============================================================
 void stair_single_start(void)
 {
+    stair_abort();
     stair_ctx_begin(&ctx_single);
     target_speed            = STAIR_RUNUP_SPEED;
 }
 
-void stair_single_run(void)
+static void stair_single_step(void)
 {
     if (!ctx_single.active) return;
     ctx_single.phase_timer++;
@@ -220,21 +325,18 @@ void stair_single_run(void)
             && ctx_single.phase_timer > 20)
         {
             apply_stair_params();
-            jump_trigger();
-            ctx_single.jump_ok    = (jump_cfg.state != JUMP_IDLE);
-            ctx_single.fail_reason = ctx_single.jump_ok ? 0 : 1;
-            ctx_single.phase      = STAIR_PHASE_JUMPING;
-            ctx_single.phase_timer = 0;
+            (void)stair_trigger_jump(&ctx_single);
         }
         break;
 
     case STAIR_PHASE_JUMPING:
+        if (stair_jump_timeout(&ctx_single, 1))
+        {
+            break;
+        }
         if (!ctx_single.jump_ok && ctx_single.phase_timer > 10)
         {
-            restore_jump_defaults();
-            target_speed = 0;
-            ctx_single.active = 0;
-            ctx_single.phase  = STAIR_PHASE_DONE;
+            stair_finish_with_defaults(&ctx_single, 0, ctx_single.fail_reason);
         }
         else if (jump_cfg.state == JUMP_IDLE && ctx_single.phase_timer > 10)
         {
@@ -249,16 +351,23 @@ void stair_single_run(void)
     case STAIR_PHASE_STOPPING:
         if (speed_stopped())
         {
-            restore_jump_defaults();
-            ctx_single.phase = STAIR_PHASE_DONE;
+            stair_finish_with_defaults(&ctx_single, 1, STAIR_FAIL_NONE);
+        }
+        else
+        {
+            (void)stair_stop_timeout(&ctx_single, 1);
         }
         break;
 
     case STAIR_PHASE_DONE:
         break;
     }
+}
 
-    stair_display("Stair Test", ctx_single.phase, ctx_single.jump_ok, ctx_single.fail_reason, 0, 0);
+void stair_single_run(void)
+{
+    stair_display("Stair Test", ctx_single.phase, ctx_single.jump_ok, ctx_single.fail_reason,
+                  ctx_single.last_trigger_result, mileage_delta(&ctx_single), 0, 0);
 }
 
 uint8 stair_single_is_done(void)
@@ -273,12 +382,13 @@ uint8 stair_single_is_done(void)
 // ============================================================
 void stair_seq_start(void)
 {
+    stair_abort();
     stair_ctx_begin(&ctx_seq);
     target_speed          = STAIR_RUNUP_SPEED;
     apply_stair_params();                 // 全程使用上台阶参数
 }
 
-void stair_seq_run(void)
+static void stair_seq_step(void)
 {
     if (!ctx_seq.active) return;
     ctx_seq.phase_timer++;
@@ -293,37 +403,39 @@ void stair_seq_run(void)
         if (mileage_delta(&ctx_seq) >= need_dist
             && ctx_seq.phase_timer > 20)
         {
-            jump_trigger();
-            ctx_seq.jump_ok     = (jump_cfg.state != JUMP_IDLE);
-            ctx_seq.fail_reason = ctx_seq.jump_ok ? 0 : 1;
-            ctx_seq.phase       = STAIR_PHASE_JUMPING;
-            ctx_seq.phase_timer = 0;
+            (void)stair_seq_try_trigger_jump();
+        }
+        else
+        {
+            ctx_seq.trigger_wait_timer = 0;
         }
     }
         break;
 
     case STAIR_PHASE_JUMPING:
+        if (stair_jump_timeout(&ctx_seq, 1))
+        {
+            break;
+        }
         if (!ctx_seq.jump_ok && ctx_seq.phase_timer > 10)
         {
-            restore_jump_defaults();
-            target_speed = 0;
-            ctx_seq.active = 0;
-            ctx_seq.phase  = STAIR_PHASE_DONE;
+            stair_finish_with_defaults(&ctx_seq, 0, ctx_seq.fail_reason);
         }
         else if (jump_cfg.state == JUMP_IDLE && ctx_seq.phase_timer > 10)
         {
             ctx_seq.jump_index++;
 
-            if (ctx_seq.jump_index < 3)
+            if (ctx_seq.jump_index < STAIR_SEQ_TOTAL_JUMPS)
             {
                 ctx_seq.phase         = STAIR_PHASE_RUNUP;
                 ctx_seq.phase_timer   = 0;
+                ctx_seq.trigger_wait_timer = 0;
                 ctx_seq.start_mileage = current_mileage();
                 target_speed          = STAIR_RUNUP_SPEED;
             }
             else
             {
-                target_speed     = 0;
+                target_speed     = STAIR_FINAL_BRAKE_SPEED;
                 ctx_seq.phase    = STAIR_PHASE_STOPPING;
                 ctx_seq.phase_timer = 0;
                 ctx_seq.stop_mileage = current_mileage();   // 记录刹停起点
@@ -333,28 +445,36 @@ void stair_seq_run(void)
         break;
 
     case STAIR_PHASE_STOPPING:
+        stair_seq_apply_final_brake();
+
         if (speed_stopped())
         {
-            restore_jump_defaults();
-            ctx_seq.phase = STAIR_PHASE_DONE;
+            stair_finish_with_defaults(&ctx_seq, 1, STAIR_FAIL_NONE);
         }
         else if ((current_mileage() - ctx_seq.stop_mileage) > STAIR_FINAL_STOP_DIST)
         {
             // 超距未停：强制终止（Step 3 仅 250mm，前方下坡）
-            restore_jump_defaults();
-            target_speed = 0;
-            ctx_seq.jump_ok = 0;
-            ctx_seq.fail_reason = 2;
-            ctx_seq.active  = 0;
-            ctx_seq.phase   = STAIR_PHASE_DONE;
+            stair_finish_with_defaults(&ctx_seq, 0, STAIR_FAIL_OVER_DIST);
+        }
+        else
+        {
+            (void)stair_stop_timeout(&ctx_seq, 1);
         }
         break;
 
     case STAIR_PHASE_DONE:
         break;
     }
+}
 
-    stair_display("Stair Seq", ctx_seq.phase, ctx_seq.jump_ok, ctx_seq.fail_reason, ctx_seq.jump_index, 3);
+void stair_seq_run(void)
+{
+    uint8 display_index = (ctx_seq.jump_index < STAIR_SEQ_TOTAL_JUMPS)
+                         ? (uint8)(ctx_seq.jump_index + 1)
+                         : ctx_seq.jump_index;
+
+    stair_display("Stair Seq", ctx_seq.phase, ctx_seq.jump_ok, ctx_seq.fail_reason,
+                  ctx_seq.last_trigger_result, mileage_delta(&ctx_seq), display_index, STAIR_SEQ_TOTAL_JUMPS);
 }
 
 uint8 stair_seq_is_done(void)
@@ -371,7 +491,22 @@ void stair_abort(void)
     target_speed = 0;
     restore_jump_defaults();
 
-    ctx_jump.active   = 0;
+    ctx_jump.active = 0;
+    ctx_jump.phase  = STAIR_PHASE_DONE;
     ctx_single.active = 0;
-    ctx_seq.active    = 0;
+    ctx_single.phase  = STAIR_PHASE_DONE;
+    ctx_seq.active = 0;
+    ctx_seq.phase  = STAIR_PHASE_DONE;
+}
+
+void stair_service_1ms(void)
+{
+    stair_jump_step();
+    stair_single_step();
+    stair_seq_step();
+}
+
+uint8 stair_is_active(void)
+{
+    return (ctx_jump.active || ctx_single.active || ctx_seq.active) ? 1 : 0;
 }

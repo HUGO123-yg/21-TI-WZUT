@@ -48,10 +48,13 @@ static const char *page_l2_b_clear[] = { "Record", "SAVE", "Reproduce", "Clear",
 static const char *page_l2_c[] = { "Record", "SAVE", "Reproduce", "Mt9v03_text", "C_5" };
 
 // ---- Level 2 group D: 测试模块（直行100m等） --------------------
-static const char *page_l2_test[] = { "Straight", "StairSeq", "StairTest", "JumpTest", "Rotation" };
+static const char *page_l2_test[] = { "Straight", "StairSeq", "StairTest", "JumpTest", "Bridge", "Rotation" };
 
 // ---- Level 2 group E: Jump subsystem commands --------------------
 static const char *page_l2_e[] = { "Trigger", "Config", "Abort", "Default", "Status" };
+
+#define ROTATION_TEST_DUTY      (900)
+#define ROTATION_TEST_TURNS     (3.0f)
 
 // ============================================================
 // Global State
@@ -73,6 +76,7 @@ static void       (*current_operation_index)(void);
 // ============================================================
 static void fun_0(void);
 static void draw_not_implemented(void);
+static void draw_menu_items_rows(const char *items[], uint8 count, uint8 cursor, const char *title, uint8 rows);
 static void draw_menu_items(const char *items[], uint8 count, uint8 cursor, const char *title);
 static void draw_l1_menu(void);
 static void draw_l2_a(void);
@@ -85,15 +89,15 @@ void fun_a31(void); void fun_a32(void); void fun_a33(void); void fun_a34(void);
 void fun_b31(void); void fun_b32(void); void fun_b33(void); void fun_b34(void);
 void fun_c31(void); void fun_c32(void); void fun_c33(void); void fun_c34(void);
 void fun_e31(void); void fun_e32(void); void fun_e33(void); void fun_e34(void); void fun_e35(void);
-void fun_d31(void); void fun_d32_stair_seq(void); void fun_d33_stair_test(void); void fun_d34_jump_test(void); void fun_d35_rotation(void);
+void fun_d31(void); void fun_d32_stair_seq(void); void fun_d33_stair_test(void); void fun_d34_jump_test(void); void fun_d35_one_bridge(void); void fun_d36_rotation(void);
 
 // ============================================================
-// Menu State Table — 62 entries, indexed by menu_node_t enum
+// Menu State Table — indexed by menu_node_t enum
 //   Field layout: { up, down, enter, draw, cursor, is_static, init_flag }
 //
 //   up/down/enter : next node on UP / DOWN / ENTER key press.
 //   draw          : callback invoked when this node is active.
-//   cursor        : row 1-6 where the "->" indicator is drawn (0 = unused).
+//   cursor        : row where the "->" indicator is drawn (0 = unused).
 //   is_static     : 1 = static page (skip redraw when func_index unchanged).
 //                   0 = dynamic page (telemetry, needs continuous refresh).
 //   init_flag     : one-shot init guard; reset to 0 by Menu() when leaving node.
@@ -137,13 +141,14 @@ static key_table table_dispaly[MENU_COUNT] =
     [MENU_L2_C5] = { MENU_L2_C4, MENU_L2_C6, MENU_L3_C5, draw_l2_c, 5, 1, 0 },
     [MENU_L2_C6] = { MENU_L2_C5, MENU_L2_C1, MENU_L1_C,  draw_l2_c, 6, 1, 0 }, // ESC
 
-    // ---- Level 2 group D: Reserved / unimplemented ---------------
-    [MENU_L2_D1] = { MENU_L2_D6, MENU_L2_D2, MENU_L3_D1, draw_l2_d, 1, 1, 0 },
+    // ---- Level 2 group D: Test submenu ---------------------------
+    [MENU_L2_D1] = { MENU_L2_D7, MENU_L2_D2, MENU_L3_D1, draw_l2_d, 1, 1, 0 },
     [MENU_L2_D2] = { MENU_L2_D1, MENU_L2_D3, MENU_L3_D2, draw_l2_d, 2, 1, 0 },
     [MENU_L2_D3] = { MENU_L2_D2, MENU_L2_D4, MENU_L3_D3, draw_l2_d, 3, 1, 0 },
     [MENU_L2_D4] = { MENU_L2_D3, MENU_L2_D5, MENU_L3_D4, draw_l2_d, 4, 1, 0 },
     [MENU_L2_D5] = { MENU_L2_D4, MENU_L2_D6, MENU_L3_D5, draw_l2_d, 5, 1, 0 },
-    [MENU_L2_D6] = { MENU_L2_D5, MENU_L2_D1, MENU_L1_D,  draw_l2_d, 6, 1, 0 }, // ESC
+    [MENU_L2_D6] = { MENU_L2_D5, MENU_L2_D7, MENU_L3_D6, draw_l2_d, 6, 1, 0 },
+    [MENU_L2_D7] = { MENU_L2_D6, MENU_L2_D1, MENU_L1_D,  draw_l2_d, 7, 1, 0 }, // ESC
 
     // ---- Level 2 group E: Jump control submenu -------------------
     [MENU_L2_E1] = { MENU_L2_E6, MENU_L2_E2, MENU_L3_E1, draw_l2_e, 1, 1, 0 },
@@ -180,7 +185,8 @@ static key_table table_dispaly[MENU_COUNT] =
     [MENU_L3_D2] = { MENU_L3_D2, MENU_L3_D2, MENU_L2_D2, fun_d32_stair_seq, 0, 0, 0 },
     [MENU_L3_D3] = { MENU_L3_D3, MENU_L3_D3, MENU_L2_D3, fun_d33_stair_test, 0, 0, 0 },
     [MENU_L3_D4] = { MENU_L3_D4, MENU_L3_D4, MENU_L2_D4, fun_d34_jump_test, 0, 0, 0 },
-    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35_rotation, 0, 0, 0 },
+    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35_one_bridge, 0, 0, 0 },
+    [MENU_L3_D6] = { MENU_L3_D6, MENU_L3_D6, MENU_L2_D6, fun_d36_rotation, 0, 0, 0 },
 
     // E group: Jump control leaf pages
     [MENU_L3_E1] = { MENU_L3_E1, MENU_L3_E1, MENU_L2_E1, fun_e31, 0, 0, 0 },
@@ -199,22 +205,28 @@ static key_table table_dispaly[MENU_COUNT] =
 // The label tables are compile-time constants in .rodata — no
 // runtime string duplication.
 
-// ---- Core: draws a 6-row menu page (rows 1-6) -------------------
+// ---- Core: draws a menu page ------------------------------------
 //   items[0..count-1] = row labels (row 1..count)
-//   row count+1..5 get "ESC", row 6 always gets "ESC"
+//   row count+1..rows get "ESC"
 //   The "->" cursor indicator is drawn on the row matching `cursor`.
-static void draw_menu_items(const char *items[], uint8 count, uint8 cursor,
-                            const char *title)
+static void draw_menu_items_rows(const char *items[], uint8 count, uint8 cursor,
+                                 const char *title, uint8 rows)
 {
     uint8 i;
     ips_clear();
-    for (i = 1; i <= 6; i++)
+    for (i = 1; i <= rows; i++)
     {
         if (i == cursor)
             ips_show_string(0, 16 * i, "->");
         ips_show_string(20, 16 * i, (i <= count) ? items[i - 1] : "ESC");
     }
     ips_show_string(8 * 23, 16 * 19, title);
+}
+
+static void draw_menu_items(const char *items[], uint8 count, uint8 cursor,
+                            const char *title)
+{
+    draw_menu_items_rows(items, count, cursor, title, 6);
 }
 
 static void draw_l1_menu(void)
@@ -244,7 +256,7 @@ static void draw_l2_c(void)
 
 static void draw_l2_d(void)
 {
-    draw_menu_items(page_l2_test, 5, table_dispaly[func_index].cursor, "Test");
+    draw_menu_items_rows(page_l2_test, 6, table_dispaly[func_index].cursor, "Test", 7);
 }
 
 static void draw_l2_e(void)
@@ -561,22 +573,23 @@ void fun_c34(void)  // Path 3 — Clear
 // Level 3 — Group E: Jump Control
 // ============================================================
 // These functions interact with the 7-state jump FSM in Body_ctrl.c.
-// Unlike the navigation path functions, they don't use init_flag
-// because their operations are fire-and-forget (trigger, abort, reset).
+// Trigger / abort / reset use init_flag so the action runs once when the
+// page is entered, then the same page can keep showing live status.
 
 void fun_e31(void)  // Jump — Trigger
 {
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        (void)jump_trigger();
+        e->init_flag = 1;
+    }
+
     ips_show_string(8 * 0, 16 * 0, "Jump Trigger");
-    jump_trigger();                          // Start the jump sequence
     ips_show_string(8 * 0, 16 * 2, "Result:");
-    if (jump_cfg.state != JUMP_IDLE)
-    {
-        ips_show_string(8 * 0, 16 * 3, "OK - Jump Started");
-    }
-    else
-    {
-        ips_show_string(8 * 0, 16 * 3, "FAIL - Check State");
-    }
+    ips_show_string(8 * 10, 16 * 2, jump_trigger_result_name(jump_cfg.last_trigger_result));
+    ips_show_string(8 * 0, 16 * 3, "State:");
+    ips_show_string(8 * 10, 16 * 3, jump_state_name(jump_cfg.state));
 }
 
 void fun_e32(void)  // Jump — Config Display (read-only)
@@ -594,26 +607,39 @@ void fun_e32(void)  // Jump — Config Display (read-only)
 
 void fun_e33(void)  // Jump — Abort (emergency stop)
 {
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        jump_abort();
+        e->init_flag = 1;
+    }
+
     ips_show_string(8 * 0, 16 * 0, "Jump Abort");
-    jump_abort();
     ips_show_string(8 * 0, 16 * 2, "Aborted - IDLE");
 }
 
 void fun_e34(void)  // Jump — Reset to Defaults
 {
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
+    {
+        jump_config_default();
+        e->init_flag = 1;
+    }
+
     ips_show_string(8 * 0, 16 * 0, "Jump Default");
-    jump_config_default();
     ips_show_string(8 * 0, 16 * 2, "Reset to Defaults");
 }
 
 void fun_e35(void)  // Jump — Live Status
 {
     ips_show_string(8 * 0, 16 * 0, "Jump Status");
-    ips_show_string(8 * 0, 16 * 1, "State:");   ips_show_int(8 * 10, 16 * 1, jump_cfg.state, 3);
+    ips_show_string(8 * 0, 16 * 1, "State:");   ips_show_string(8 * 10, 16 * 1, jump_state_name(jump_cfg.state));
     ips_show_string(8 * 0, 16 * 2, "Elapsed:"); ips_show_int(8 * 10, 16 * 2, jump_cfg.elapsed, 5);
     ips_show_string(8 * 0, 16 * 3, "Count:");   ips_show_int(8 * 10, 16 * 3, jump_cfg.jump_count, 5);
     ips_show_string(8 * 0, 16 * 4, "PeakAcc:"); ips_show_float(8 * 10, 16 * 4, jump_cfg.peak_acc_magnitude, 5, 2);
     ips_show_string(8 * 0, 16 * 5, "CanTrig:"); ips_show_int(8 * 10, 16 * 5, jump_can_trigger(), 3);
+    ips_show_string(8 * 0, 16 * 6, "Trig:");    ips_show_string(8 * 10, 16 * 6, jump_trigger_result_name(jump_cfg.last_trigger_result));
 }
 
 // ============================================================
@@ -695,31 +721,57 @@ void fun_d34_jump_test(void)
     stair_jump_run();
     if (stair_jump_is_done())  func_index = MENU_L1_D;
 }
-void fun_d35_rotation(void)
+void fun_d35_one_bridge(void)
 {
     key_table *e = &table_dispaly[func_index];
     if (e->init_flag == 0)
     {
-        rotation_start(ROT_CW, 1500, 5000);
+        one_bridge_set_auto(1);
         e->init_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "Rotation Test");
-    ips_show_string(8 * 0, 16 * 2, "Dir:");
 
-    if (rotation.state == ROT_RUNNING)
+    ips_show_string(8 * 0, 16 * 0, "One Bridge Auto");
+    ips_show_string(8 * 0, 16 * 1, "Auto:");  ips_show_int(8 * 10, 16 * 1, one_bridge.auto_enable, 1);
+    ips_show_string(8 * 0, 16 * 2, "State:"); ips_show_string(8 * 10, 16 * 2, one_bridge_state_name(one_bridge.state));
+    ips_show_string(8 * 0, 16 * 3, "Side:");  ips_show_string(8 * 10, 16 * 3, one_bridge_side_name(one_bridge.side));
+    ips_show_string(8 * 0, 16 * 4, "Roll:");  ips_show_float(8 * 10, 16 * 4, one_bridge.roll_filtered, 5, 2);
+    ips_show_string(8 * 0, 16 * 5, "Leg:");   ips_show_int(8 * 10, 16 * 5, one_bridge.leg_offset, 5);
+    ips_show_string(8 * 0, 16 * 6, "Motor:"); ips_show_int(8 * 10, 16 * 6, one_bridge.motor_adj, 5);
+    ips_show_string(8 * 0, 16 * 7, "Dist:");  ips_show_float(8 * 10, 16 * 7, one_bridge.distance, 5, 1);
+    ips_show_string(8 * 0, 16 * 8, "Cool:");  ips_show_int(8 * 10, 16 * 8, one_bridge.cooldown, 4);
+}
+
+void fun_d36_rotation(void)
+{
+    key_table *e = &table_dispaly[func_index];
+    if (e->init_flag == 0)
     {
-        ips_show_string(8 * 10, 16 * 2, (rotation.dir == ROT_CW) ? "CW " : "CCW");
-        ips_show_string(8 * 0, 16 * 3, "Duty:");   ips_show_int(8 * 10, 16 * 3, rotation.turn_duty, 5);
-        ips_show_string(8 * 0, 16 * 4, "Time:");   ips_show_int(8 * 10, 16 * 4, (int16)(rotation.duration_ms - rotation.elapsed), 5);
-        ips_show_string(8 * 0, 16 * 5, "Yaw:");    ips_show_float(8 * 10, 16 * 5, roll_balance_cascade.posture_value.yaw, 5, 1);
+        if (one_bridge_is_active())
+        {
+            one_bridge_abort();
+        }
+
+        fuxian       = 0;
+        target_speed = 0.0f;
+        run_state    = 1;
+        STOP_FLAG    = 1;
+        rotation_stop();
+        rotation_start_turns(ROT_CW, ROTATION_TEST_DUTY, ROTATION_TEST_TURNS);
+        e->init_flag = 1;
     }
-    else if (rotation.state == ROT_DONE)
+
+    ips_show_string(8 * 0, 16 * 0, "Rotation 3T");
+    ips_show_string(8 * 0, 16 * 1, "State:"); ips_show_string(8 * 10, 16 * 1, rotation_state_name(rotation.state));
+    ips_show_string(8 * 0, 16 * 2, "Duty:");  ips_show_int(8 * 10, 16 * 2, rotation.turn_duty, 5);
+    ips_show_string(8 * 0, 16 * 3, "Angle:"); ips_show_float(8 * 10, 16 * 3, rotation.accumulated_angle, 5, 1);
+    ips_show_string(8 * 0, 16 * 4, "Target:");ips_show_float(8 * 10, 16 * 4, rotation.target_angle, 5, 1);
+    ips_show_string(8 * 0, 16 * 5, "Yaw:");   ips_show_float(8 * 10, 16 * 5, roll_balance_cascade.posture_value.yaw, 5, 1);
+    ips_show_string(8 * 0, 16 * 6, "Time:");  ips_show_int(8 * 10, 16 * 6, rotation.elapsed, 5);
+
+    if (rotation_is_done())
     {
+        target_speed = 0.0f;
         rotation_stop();
         func_index = MENU_L1_D;
-    }
-    else
-    {
-        ips_show_string(8 * 10, 16 * 2, "IDLE");
     }
 }

@@ -311,6 +311,7 @@ PROJ_CODE_SRCS = \
 	project/code/Flash.c \
 	project/code/Imu.c \
 	project/code/Menu.c \
+	project/code/One_bridge.c \
 	project/code/Remote_ctrl.c \
 	project/code/Rotation.c \
 	project/code/Stair_test.c \

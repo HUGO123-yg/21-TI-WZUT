@@ -25,8 +25,8 @@ typedef enum
     MENU_L2_B1, MENU_L2_B2, MENU_L2_B3, MENU_L2_B4, MENU_L2_B5, MENU_L2_B6,
     // 第2层 — C组 (Record/SAVE/Reproduce/Mt9v03)
     MENU_L2_C1, MENU_L2_C2, MENU_L2_C3, MENU_L2_C4, MENU_L2_C5, MENU_L2_C6,
-    // 第2层 — D组 (D_1~D_5)
-    MENU_L2_D1, MENU_L2_D2, MENU_L2_D3, MENU_L2_D4, MENU_L2_D5, MENU_L2_D6,
+    // 第2层 — D组 (测试项 + ESC)
+    MENU_L2_D1, MENU_L2_D2, MENU_L2_D3, MENU_L2_D4, MENU_L2_D5, MENU_L2_D6, MENU_L2_D7,
     // 第2层 — E组 (Jump: Trigger/Config/Abort/Default/Status)
     MENU_L2_E1, MENU_L2_E2, MENU_L2_E3, MENU_L2_E4, MENU_L2_E5, MENU_L2_E6,
 
@@ -36,8 +36,8 @@ typedef enum
     MENU_L3_B1, MENU_L3_B2, MENU_L3_B3, MENU_L3_B4, MENU_L3_B5,
     // 第3层 — C组 (路径3: 录制/保存/回放/清除)
     MENU_L3_C1, MENU_L3_C2, MENU_L3_C3, MENU_L3_C4, MENU_L3_C5,
-    // 第3层 — D组 (待实现)
-    MENU_L3_D1, MENU_L3_D2, MENU_L3_D3, MENU_L3_D4, MENU_L3_D5,
+    // 第3层 — D组测试
+    MENU_L3_D1, MENU_L3_D2, MENU_L3_D3, MENU_L3_D4, MENU_L3_D5, MENU_L3_D6,
     // 第3层 — E组 (Jump 功能)
     MENU_L3_E1, MENU_L3_E2, MENU_L3_E3, MENU_L3_E4, MENU_L3_E5,
 
@@ -53,7 +53,7 @@ typedef struct
     menu_node_t down;                // 向下跳转索引
     menu_node_t enter;               // 确定跳转索引
     void       (*draw)(void);        // 当前页面显示函数指针
-    uint8       cursor;              // 光标位置 (1-6)，0=不使用光标
+    uint8       cursor;              // 光标位置，0=不使用光标
     uint8       is_static;           // 1=静态页面(不变时不重绘) 0=动态页面(持续刷新)
     uint8       init_flag;           // 一次性初始化标志，离开时自动清零
 } key_table;

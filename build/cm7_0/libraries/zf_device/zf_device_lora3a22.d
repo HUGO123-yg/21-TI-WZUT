@@ -225,6 +225,7 @@
  /Users/hugo/Desktop/hardware/test3/project/code/Menu.h \
  /Users/hugo/Desktop/hardware/test3/project/code/Stair_test.h \
  /Users/hugo/Desktop/hardware/test3/project/code/Rotation.h \
+ /Users/hugo/Desktop/hardware/test3/project/code/One_bridge.h \
  /Users/hugo/Desktop/hardware/test3/project/code/Remote_ctrl.h
 libraries/zf_device/zf_device_lora3a22.h:
 /Users/hugo/Desktop/hardware/test3/libraries/zf_common/zf_common_headfile.h:
@@ -451,4 +452,5 @@ libraries/zf_device/zf_device_lora3a22.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Menu.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Stair_test.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Rotation.h:
+/Users/hugo/Desktop/hardware/test3/project/code/One_bridge.h:
 /Users/hugo/Desktop/hardware/test3/project/code/Remote_ctrl.h:

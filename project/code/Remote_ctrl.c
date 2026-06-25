@@ -34,6 +34,25 @@ static float remote_ctrl_channel_to_float(uint16 value, float max_output)
 
 static void remote_ctrl_force_stop(void)
 {
+    if (one_bridge_is_active())
+    {
+        one_bridge_abort();
+    }
+
+    if (rotation_is_active())
+    {
+        rotation_stop();
+    }
+
+    if (stair_is_active())
+    {
+        stair_abort();
+    }
+    else if (jump_is_active())
+    {
+        jump_abort();
+    }
+
     remote_ctrl.armed              = 0;
     remote_ctrl.steer_adj          = 0;
     remote_ctrl.speed_target       = 0.0f;
@@ -109,8 +128,10 @@ void remote_ctrl_update_1ms(void)
     STOP_FLAG = 1;
 
     if ((jump_cfg.state == JUMP_IDLE) &&
-        (rotation.state != ROT_RUNNING) &&
-        (straight_test.state != STRAIGHT_RUNNING))
+        !rotation_is_active() &&
+        (straight_test.state != STRAIGHT_RUNNING) &&
+        !stair_is_active() &&
+        !one_bridge_is_active())
     {
         fuxian = 0;
         remote_ctrl.speed_target =
@@ -130,7 +151,7 @@ void remote_ctrl_update_1ms(void)
     {
         if (!remote_ctrl.action_switch_last && jump_can_trigger())
         {
-            jump_trigger();
+            (void)jump_trigger();
         }
         remote_ctrl.action_switch_last = 1;
     }
