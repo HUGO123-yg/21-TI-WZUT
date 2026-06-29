@@ -108,6 +108,7 @@
 #include "seekfree_assistant_interface.h"
 //=====================================================���Ӧ�ò�=====================================================
 
+#include "Config.h"
 #include "Common_peripherals.h"
 #include "small_driver_uart_control.h"
 #include "Body_ctrl.h"
