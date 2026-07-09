@@ -18,7 +18,7 @@ typedef enum {
     STAIR_PHASE_RUNUP    = 0,
     STAIR_PHASE_JUMPING  = 1,
     STAIR_PHASE_STOPPING = 2,
-    STAIR_PHASE_DONE     = 3,
+    STAIR_PHASE_DONE     = 3
 } stair_phase_enum;
 
 // ============================================================

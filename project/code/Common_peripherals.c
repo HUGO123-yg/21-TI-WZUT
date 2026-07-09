@@ -26,10 +26,10 @@ uint8 key2_state_last = 0;                                                      
 uint8 key3_state_last = 0;                                                          // 上一次按键动作状态
 uint8 key4_state_last = 0;                                                          // 上一次按键动作状态
 
-volatile uint8 key1_flag;
-volatile uint8 key2_flag;
-volatile uint8 key3_flag;
-volatile uint8 key4_flag;
+uint8 key1_flag;
+uint8 key2_flag;
+uint8 key3_flag;
+uint8 key4_flag;
 
 int Key_close_flag=0;//外部按键扫描隔绝标志位
 
@@ -184,10 +184,10 @@ void steer_control_init(void)
     steer_4.steer_dir        = STEER_4_DIR;        // 舵机 4 转动方向配置
     steer_4.center_num       = STEER_4_CENTER;     // 舵机 4 中心位置（初始位置）配置
 
-    steer_1.now_location     = func_limit_ab(steer_1.center_num + STEER_1_DEFAULT_OFFSET * steer_1.steer_dir, 0, 10000);
-    steer_2.now_location     = func_limit_ab(steer_2.center_num + STEER_2_DEFAULT_OFFSET * steer_2.steer_dir, 0, 10000);
-    steer_3.now_location     = func_limit_ab(steer_3.center_num + STEER_3_DEFAULT_OFFSET * steer_3.steer_dir, 0, 10000);
-    steer_4.now_location     = func_limit_ab(steer_4.center_num + STEER_4_DEFAULT_OFFSET * steer_4.steer_dir, 0, 10000);
+    steer_1.now_location     = steer_1.center_num; // 舵机 1 当前位置初始化为中心位置
+    steer_2.now_location     = steer_2.center_num; // 舵机 2 当前位置初始化为中心位置
+    steer_3.now_location     = steer_3.center_num; // 舵机 3 当前位置初始化为中心位置
+    steer_4.now_location     = steer_4.center_num; // 舵机 4 当前位置初始化为中心位置
 
     // 初始化 4 路舵机的 PWM 输出，频率为配置值，初始占空比为中心位置值
     pwm_init(steer_1.pwm_pin, steer_1.control_frequency, steer_1.now_location);
@@ -211,10 +211,10 @@ void steer_duty_set(steer_control_struct *control_data, int16 duty)
 {
     if(control_data->steer_state)                  // 判断舵机是否处于使能状态
     {
-        // PWM duty is unsigned in the low-level driver; clamp before sending.
-        control_data->now_location = func_limit_ab(duty, 0, 10000);
+        // 将输入的占空比限制在 -10000 ~ 10000 范围内，并更新当前位置
+        control_data->now_location = func_limit_ab(duty, -10000, 10000);
 
-        pwm_set_duty(control_data->pwm_pin, control_data->now_location);
+        pwm_set_duty(control_data->pwm_pin, duty); // 设置 PWM 占空比
     }
 }
 
@@ -231,10 +231,10 @@ void steer_control(steer_control_struct *control_data, int16 move_num)
         // 根据转向方向计算新位置：steer_dir 为 1 时正向偏移，为 -1 时反向偏移
         control_data->now_location = control_data->now_location + (control_data->steer_dir == 1 ? move_num : -move_num);
 
-        // PWM duty is unsigned in the low-level driver; clamp before sending.
-        control_data->now_location = func_limit_ab(control_data->now_location, 0, 10000);
+        // 将新位置限制在 -10000 ~ 10000 范围内
+        control_data->now_location = func_limit_ab(control_data->now_location, -10000, 10000);
 
-        pwm_set_duty(control_data->pwm_pin, control_data->now_location);
+        pwm_set_duty(control_data->pwm_pin, control_data->now_location); // 设置 PWM 占空比更新舵机位置
     }
 }
 

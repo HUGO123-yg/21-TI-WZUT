@@ -1,47 +1,34 @@
-# zf_components — SeekFree PC Assistant Protocol
+# ZF_COMPONENTS KNOWLEDGE BASE
+
+**Directory:** `libraries/zf_components/`  
+**Scope:** SeekFree Assistant (PC debugging tool) protocol implementation
 
 ## OVERVIEW
-4 files (2 `.c`/`.h` pairs). Bridges the embedded system to the SeekFree PC debug assistant via UART/WiFi/BLE. Three sub-protocols: oscilloscope (8-channel float streaming), camera image upload, and bidirectional parameter tuning.
+Binary UART protocol layer for streaming oscilloscope data, camera frames, and receiving tunable parameters from the PC-side SeekFree Assistant. Transport-agnostic: callbacks are wired to UART, BLE, WiFi, or SPI in `seekfree_assistant_interface_init()`.
 
 ## STRUCTURE
-
 ```
 libraries/zf_components/
-├── seekfree_assistant.h/c              # Protocol encode/decode: osc data, camera frames, parameter packets
-└── seekfree_assistant_interface.h/c    # Transport abstraction layer binding to UART/WiFi/BLE/etc.
+├── seekfree_assistant.c/h           — Protocol encoder/decoder + packet structs
+└── seekfree_assistant_interface.c/h — Transport callback registration
 ```
 
 ## WHERE TO LOOK
-
 | Task | Location | Notes |
 |------|----------|-------|
-| Oscilloscope data send | `seekfree_assistant.c` — `seekfree_assistant_oscilloscope_send()` | 8-channel float streaming with packet framing |
-| Camera image upload | `seekfree_assistant.c` — `seekfree_assistant_camera_send()` | Supports binary/gray/RGB565 with boundary overlay |
-| Parameter tuning | `seekfree_assistant.c` — `seekfree_assistant_data_analysis()` | Bidirectional: PC sends params, MCU reads/writes |
-| Transport binding | `seekfree_assistant_interface.h` — `seekfree_assistant_transfer_device_enum` | 7 options: UART, BLE6A20, CH9141, WIFI_UART, WIFI_SPI, RECEIVER_UART, LORA3A22_UART |
-| Receive callback | `seekfree_assistant_interface.h` — `seekfree_assistant_receive_callback_function` | Per-transport receive handler registration |
-
-## PROTOCOL TYPES
-
-| Struct | Fields | Use |
-|--------|--------|-----|
-| `seekfree_assistant_oscilloscope_struct` | head, channel_num, check_sum, length, data[8] | 8-channel oscilloscope packet |
-| `seekfree_assistant_camera_struct` | 7 fields: head, mode, width, height, type, count, check_sum | Camera frame header |
-| `seekfree_assistant_camera_dot_struct` | 8 fields: x/y start/end + type/flags | Boundary line overlay |
-| `seekfree_assistant_camera_buffer_struct` | image buffer + boundary pointer arrays | In-progress frame assembly |
-| `seekfree_assistant_parameter_struct` | head, func, channel, data | Parameter read/write packet |
+| Wire transport (UART/WiFi/BLE) | `seekfree_assistant_interface.c` | Call `seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_DEBUG_UART)` after the device init |
+| Stream oscilloscope channels | `seekfree_assistant.h` | Fill `seekfree_assistant_oscilloscope_data.data[]`, then call `seekfree_assistant_oscilloscope_send()` |
+| Stream camera + boundary overlay | `seekfree_assistant.h` | `seekfree_assistant_camera_information_config()` then `seekfree_assistant_camera_boundary_config()`, then `seekfree_assistant_camera_send()` |
+| Receive tuned parameters from PC | `seekfree_assistant.h` | Poll `seekfree_assistant_data_analysis()` in a PIT ISR or main loop; read `seekfree_assistant_parameter[]` and clear `seekfree_assistant_parameter_update_flag[]` |
+| Use custom transport | `seekfree_assistant_interface.c` | Select `SEEKFREE_ASSISTANT_CUSTOM` and override the weak `seekfree_assistant_transfer()` / `seekfree_assistant_receive()` |
 
 ## CONVENTIONS
+- Frame headers: `0xAA` for MCU-to-PC, `0x55` for PC-to-MCU.
+- Camera types are hardcoded enums: `SEEKFREE_ASSISTANT_OV7725_BIN`, `SEEKFREE_ASSISTANT_MT9V03X`, `SEEKFREE_ASSISTANT_SCC8660`.
+- `seekfree_assistant_transfer_callback` is a function pointer swapped at runtime by `interface_init()`; it is NOT a `zf_driver` abstraction.
 
-- **Header-first framing**: All protocol packets use `#define` magic bytes at packet head for sync.
-- **Transport enum dispatch**: `seekfree_assistant_transfer_device_enum` selects send/receive functions. Each transport registers a `callback_function` send handler + `receive_callback_function` receive handler.
-- **Extern globals**: `extern oscilloscope_data[8]`, `extern parameter[4]`, `extern image_update_flag` — accessed by `project/code/` for UI display.
-- **Single include**: Both `.c` files include `zf_common_headfile.h`.
-
-## NOTES
-
-- Built for the SeekFree PC debugging tool — not a general-purpose protocol.
-- Transport abstraction allows swapping UART/WiFi/BLE without changing protocol logic.
-- Image streaming uses boundary detection (X/Y/XY/NO_BOUNDARY) for camera-based line following.
-- No RTOS: all protocol logic is callback-driven or polled from the super-loop.
-- Protocol documentation is in Chinese (SeekFree PC assistant spec) — no English reference available.
+## ANTI-PATTERNS (THIS DIRECTORY)
+1. **Forgetting to poll `seekfree_assistant_data_analysis()`**: Parameter tuning stalls if this is not called regularly. Place it in the same PIT ISR as the oscilloscope send, or in the main loop.
+2. **Calling boundary config before camera info config**: `seekfree_assistant_camera_boundary_config()` asserts if `camera_information_config()` was not called first.
+3. **Not clearing update flags**: `seekfree_assistant_parameter_update_flag[channel]` stays set until manually zeroed; code that only checks truthiness will think every loop is a new update.
+4. **Blocking transport in camera send**: `seekfree_assistant_camera_send()` can emit tens of kilobytes. If the `transfer_callback` blocks (e.g., polling UART FIFO), it will eat ISR time. Prefer DMA-backed UART or move camera streaming to a lower-priority context.

@@ -33,13 +33,13 @@
 #define STAIR_FINAL_STOP_DIST      15.0f     // 最后一跳刹停距离上限 (cm)
 #define STAIR_FINAL_BRAKE_SPEED    -120.0f   // 最后一跳后的短反拖刹车速度
 #define STAIR_FINAL_BRAKE_MS       220       // 反拖刹车持续时间
-#define STAIR_PREPARE_TICKS        70        // 固定时序：起跳前降低重心时间
-#define STAIR_CHARGE_TICKS         100       // 上台阶蓄力时间 (ms)
-#define STAIR_LAUNCH_TICKS         45        // 起跳释放时间 (ms)
-#define STAIR_LANDING_TICKS        90        // 固定时序：落地缓冲时间
-#define STAIR_RECOVER_TICKS        180       // 固定时序：恢复正常站姿时间
-#define STAIR_SEQ_INTERVAL_MS      950       // 连续三跳：两次起跳间固定等待时间
-#define STAIR_LCD_PERIOD_MS        80        // LCD 降低刷新频率，避免影响 1ms 控制
+#define STAIR_PREPARE_TICKS        JUMP_PREPARE_TICKS   // 与平地跳跃相同时序
+#define STAIR_CHARGE_TICKS         (100)       // 上台阶蓄力时间 (ms)
+#define STAIR_LAUNCH_TICKS         JUMP_LAUNCH_TICKS    // 与平地跳跃相同时序
+#define STAIR_LANDING_TICKS        JUMP_LANDING_TICKS   // 与平地跳跃相同时序
+#define STAIR_RECOVER_TICKS        (180)       // 上台阶恢复时间
+#define STAIR_SEQ_INTERVAL_MS      (950)       // 连续三跳：两次起跳间固定等待时间
+#define STAIR_LCD_PERIOD_MS        (80)        // LCD 降低刷新频率，避免影响 1ms 控制
 #define STAIR_PX_KP                0.08f     // x 位置误差 -> 俯仰角偏置 P
 #define STAIR_PX_KI                0.0f      // x 位置误差 -> 俯仰角偏置 I
 #define STAIR_PX_KD                0.01f     // x 位置误差 -> 俯仰角偏置 D
@@ -55,13 +55,13 @@
 #define STAIR_YAW_INTEGRAL_MAX     60.0f
 #define STAIR_YAW_INTEGRAL_PRO     0.02f
 #define STAIR_YAW_MOTOR_DIR        1.0f      // 航向锁方向不对时改成 -1.0f
-#define STAIR_CHARGE_DUTY          1400      // 四腿同步下蹲量
-#define STAIR_LAUNCH_DUTY          1900      // 四腿同步伸腿量
-#define STAIR_PRELAND_DUTY         900       // 腾空后预着陆伸腿量
-#define STAIR_MOTOR_BOOST          450.0f    // 起跳电机助推
-#define STAIR_LAND_DAMPING         30        // 落地缓冲步进
-#define STAIR_AIRBORNE_TIMEOUT     260       // 腾空超时保护 (ms)
-#define STAIR_LANDING_ACC_THRESHOLD 1.8f     // 落地冲击阈值 (g)
+#define STAIR_CHARGE_DUTY          (1400)      // 四腿同步下蹲量
+#define STAIR_LAUNCH_DUTY          (1900)      // 四腿同步伸腿量
+#define STAIR_PRELAND_DUTY         (900)       // 腾空后预着陆伸腿量
+#define STAIR_MOTOR_BOOST          (450.0f)    // 起跳电机助推
+#define STAIR_LAND_DAMPING         (30)        // 落地缓冲步进
+#define STAIR_AIRBORNE_TIMEOUT     JUMP_AIRBORNE_TIMEOUT  // 与平地跳跃共用
+#define STAIR_LANDING_ACC_THRESHOLD JUMP_LANDING_ACC_THRESHOLD  // 与平地跳跃共用
 #define STAIR_STOP_SPEED           5.0f      // 判定停止的速度阈值
 #define STAIR_STOP_STABLE_MS       10        // 连续低速判停时间
 #define STAIR_JUMP_TIMEOUT_MS      2000      // 单次跳跃最大等待时间

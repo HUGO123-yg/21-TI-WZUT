@@ -3,8 +3,8 @@
 // 双腿对称差速 + 舵机对向偏转，实现绕中心轴原地转圈
 // ============================================================
 
-#ifndef CODE_ROTATION_H_
-#define CODE_ROTATION_H_
+#ifndef _rotation_h_
+#define _rotation_h_
 
 #include "zf_common_headfile.h"
 
@@ -50,9 +50,6 @@ typedef struct
 
 extern rotation_control_struct rotation;
 
-// 启动旋转
-void rotation_start(rotation_dir_enum dir, int16 max_turn_duty, uint32 duration_ms);
-
 // 启动定圈数旋转
 void rotation_start_turns(rotation_dir_enum dir, int16 max_turn_duty, float turns);
 
@@ -71,4 +68,4 @@ uint8 rotation_is_active(void);
 // 状态名
 const char *rotation_state_name(rotation_state_enum state);
 
-#endif /* CODE_ROTATION_H_ */
+#endif /* _rotation_h_ */

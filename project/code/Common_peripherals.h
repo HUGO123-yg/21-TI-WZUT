@@ -1,3 +1,8 @@
+#ifndef _COMMON_PERIPHERALS_H_
+#define _COMMON_PERIPHERALS_H_
+
+#include "zf_common_headfile.h"
+
 #define BUZZER_PIN    P19_4
 
 #define KEY1                    (P20_3)
@@ -7,16 +12,6 @@
 
 #define SWITCH2                 (P21_5)
 #define SWITCH1                 (P21_6)
-
-////IPS114宏定义
-//#define ips_show_string                  ips114_show_string
-//#define ips_show_int                     ips114_show_int
-//#define ips_show_uint                    ips114_show_uint
-//#define ips_show_float                   ips114_show_float
-//#define ips_show_chinese                 ips114_show_chinese
-//#define ips_clear                        ips114_clear
-//#define ips_init                         ips114_init
-//#define ips_show_rgb565_image            ips114_show_rgb565_image
 
 //IPS200宏定义
 #define ips_show_string                  ips200_show_string
@@ -31,7 +26,7 @@
 #define M_MAX  3000
 #define M_MIN  -3000
 
-
+//更新，控制舵机状态下压，呈现2个锐角
 #define STEER_1_PWM      (TCPWM_CH10_P05_1)   // 舵机控制引脚  注：左上舵机  
 #define STEER_1_FRE      (300)                // 舵机控制频率
 #define STEER_1_DIR      (1)                  // 舵机旋转方向(车体升高方向)
@@ -51,12 +46,6 @@
 #define STEER_4_FRE      (300)                // 舵机控制频率
 #define STEER_4_DIR      (1)                  // 舵机旋转方向(车体升高方向)
 #define STEER_4_CENTER   (4200)               // 舵机中心值(初始保持位置，大腿水平)
-
-#define STEER_STABLE_LOW_CG_OFFSET  (-160)  // 初始稳态低重心站姿偏移
-#define STEER_1_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_2_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_3_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_4_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
 
 
 typedef struct
@@ -86,10 +75,10 @@ typedef struct
 
 extern Car_param_t Car;
 
-extern volatile uint8 key1_flag;
-extern volatile uint8 key2_flag;
-extern volatile uint8 key3_flag;
-extern volatile uint8 key4_flag;
+extern uint8 key1_flag;
+extern uint8 key2_flag;
+extern uint8 key3_flag;
+extern uint8 key4_flag;
 
 
 extern int16 car_speed;
@@ -121,3 +110,7 @@ void CYT2_get_distance(void);
 void steer_control_init(void);
 void steer_control(steer_control_struct *control_data, int16 move_num);
 void steer_duty_set(steer_control_struct *control_data, int16 duty);
+void steer_disable(steer_control_struct *control_data);
+void steer_enable(steer_control_struct *control_data);
+
+#endif

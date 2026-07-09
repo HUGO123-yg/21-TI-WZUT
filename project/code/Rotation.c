@@ -1,14 +1,5 @@
 #include "zf_common_headfile.h"
-
-#define ROTATION_MAX_DUTY              (3000)
-#define ROTATION_DEFAULT_DURATION_MS   (2000)
-#define ROTATION_DEFAULT_TIMEOUT_MS    (12000)
-#define ROTATION_BRAKE_MS              (180)
-#define ROTATION_BRAKE_DUTY            (320)
-#define ROTATION_RAMP_MS               (300)
-#define ROTATION_SLOWDOWN_DEG          (270.0f)
-#define ROTATION_MIN_RUN_DUTY          (240)
-#define ROTATION_TARGET_TOL_DEG        (3.0f)
+#include "config.h"
 
 rotation_control_struct rotation = {
     .state         = ROT_IDLE,
@@ -120,25 +111,6 @@ static int16 rotation_calc_turns_duty(void)
                          (rotation.elapsed < ROTATION_RAMP_MS) ? 0.0f : (float)ROTATION_MIN_RUN_DUTY,
                          (float)rotation.max_turn_duty);
     return rotation_apply_dir((int16)duty);
-}
-
-// 函数功能：启动原地旋转
-// 输入参数：dir — 旋转方向 (ROT_CW/ROT_CCW)；max_turn_duty — 最大差速值；duration_ms — 时长
-// 返回值：  void
-// 使用示例：rotation_start(ROT_CW, 1500, 2000);
-// 注意事项：仅在 rotation.state == ROT_IDLE 时有效，duration_ms 建议 ≥500ms
-void rotation_start(rotation_dir_enum dir, int16 max_turn_duty, uint32 duration_ms)
-{
-    if (rotation_is_active()) return;
-
-    rotation.mode          = ROT_MODE_TIME;
-    rotation.dir           = dir;
-    rotation.max_turn_duty = func_limit_ab(max_turn_duty, 0, ROTATION_MAX_DUTY);
-    rotation.brake_duty    = func_limit_ab(ROTATION_BRAKE_DUTY, 0, ROTATION_MAX_DUTY);
-    rotation.duration_ms   = (duration_ms > 0) ? duration_ms : ROTATION_DEFAULT_DURATION_MS;
-    rotation.target_angle  = 0.0f;
-    rotation_reset_runtime();
-    rotation.state         = ROT_RUNNING;
 }
 
 // 函数功能：按圈数启动原地旋转

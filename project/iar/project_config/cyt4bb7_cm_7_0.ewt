@@ -1435,6 +1435,63 @@
             <name>$PROJ_DIR$\..\..\code\Body_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\balance_steering.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\balance_steering.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\bridge_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\bridge_ctrl.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\obstacle_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\obstacle_ctrl.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\terrain_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\terrain_ctrl.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\config.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\first_order_filter.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\first_order_filter.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\pid.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\pid.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Jump.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Jump.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Stair_test.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Stair_test.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Common_peripherals.c</name>
         </file>
         <file>
@@ -1459,28 +1516,10 @@
             <name>$PROJ_DIR$\..\..\code\Menu.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\One_bridge.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\One_bridge.h</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Rotation.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Rotation.h</name>
-        </file>
-        <file>
             <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.c</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.h</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Stair_test.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Stair_test.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\日志.txt</name>
