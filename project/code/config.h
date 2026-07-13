@@ -96,8 +96,13 @@
 #define PENDULUM_K_PITCH_RATE               (0.0f)
 #define PENDULUM_CART_EQUIVALENT_MASS_KG    (0.0f)   // awaiting measurement
 #define PENDULUM_BODY_MASS_KG               (0.0f)   // awaiting measurement
-#define PENDULUM_BODY_COM_HEIGHT_M          (0.049f) // nominal pose; verify per height
+#define PENDULUM_BODY_COM_HEIGHT_M          (0.0f)   // not measured yet
 #define PENDULUM_GRAVITY_M_S2               (9.80665f)
+
+// Chassis ground clearance in the horizontal short-link reference pose. This
+// is a packaging/terrain value, not the inverted-pendulum COM height.
+#define BODY_REFERENCE_GROUND_CLEARANCE_M   (0.049f)
+#define BODY_GROUND_CLEARANCE_TOLERANCE_M   (0.005f)
 
 // Leg control uses a coordinate system fixed to each pair of motor pivots:
 // +x is vehicle-forward and +z points downward. Geometry is now measured, but
@@ -133,40 +138,46 @@
 #define LEG_MAX_ROLL_OFFSET_M              (0.0f)
 #define LEG_MAX_TARGET_STEP_M              (0.001f)
 
-// Servo channels and horizontal centres are confirmed by old/Common_peripherals.
-// The old jump path used a 3000-count logical move for approximately 90 degrees,
-// giving 1909.86 counts/rad. Output remains globally disabled until a lifted-car
-// direction check confirms this provisional scale and the individual limits.
+// Servo calibration uses a common horizontal reference of 4500. One measured
+// servo reaches absolute PWM 3300 after about 90 degrees, so the provisional
+// symmetric travel is 1200 counts and the mirrored endpoint is 5700. Output
+// remains disabled until a lifted-car check identifies the measured servo and
+// confirms all four directions/endpoints.
 #define LEG_SERVO_COUNT                    (4U)
 #define LEG_SERVO_FREQUENCY_HZ             (300U)
+#define LEG_SERVO_REFERENCE_PWM            (4500)
+#define LEG_SERVO_90_DEG_TRAVEL_PWM        (1200)
+#define LEG_SERVO_ABSOLUTE_MIN_PWM         (3300)
+#define LEG_SERVO_ABSOLUTE_MAX_PWM         (5700)
+#define LEG_SERVO_PWM_PER_RAD              (763.94373f)
 #define LEG_SERVO_1_PWM                    (TCPWM_CH10_P05_1)
 #define LEG_SERVO_2_PWM                    (TCPWM_CH12_P05_3)
 #define LEG_SERVO_3_PWM                    (TCPWM_CH09_P05_0)
 #define LEG_SERVO_4_PWM                    (TCPWM_CH11_P05_2)
-#define LEG_SERVO_1_CENTER                 (4400)
-#define LEG_SERVO_2_CENTER                 (4400)
-#define LEG_SERVO_3_CENTER                 (4700)
-#define LEG_SERVO_4_CENTER                 (4200)
+#define LEG_SERVO_1_CENTER                 LEG_SERVO_REFERENCE_PWM
+#define LEG_SERVO_2_CENTER                 LEG_SERVO_REFERENCE_PWM
+#define LEG_SERVO_3_CENTER                 LEG_SERVO_REFERENCE_PWM
+#define LEG_SERVO_4_CENTER                 LEG_SERVO_REFERENCE_PWM
 #define LEG_SERVO_1_DIRECTION              (1)
 #define LEG_SERVO_2_DIRECTION              (-1)
 #define LEG_SERVO_3_DIRECTION              (1)
 #define LEG_SERVO_4_DIRECTION              (-1)
-#define LEG_SERVO_1_PWM_PER_RAD            (1909.8593f)
-#define LEG_SERVO_2_PWM_PER_RAD            (1909.8593f)
-#define LEG_SERVO_3_PWM_PER_RAD            (1909.8593f)
-#define LEG_SERVO_4_PWM_PER_RAD            (1909.8593f)
+#define LEG_SERVO_1_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
+#define LEG_SERVO_2_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
+#define LEG_SERVO_3_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
+#define LEG_SERVO_4_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
 #define LEG_SERVO_1_ZERO_RAD               (0.0f)
 #define LEG_SERVO_2_ZERO_RAD               (0.0f)
 #define LEG_SERVO_3_ZERO_RAD               (3.14159265f)
 #define LEG_SERVO_4_ZERO_RAD               (3.14159265f)
-#define LEG_SERVO_1_PWM_MIN                (4200)
-#define LEG_SERVO_1_PWM_MAX                (7400)
-#define LEG_SERVO_2_PWM_MIN                (1400)
-#define LEG_SERVO_2_PWM_MAX                (4600)
-#define LEG_SERVO_3_PWM_MIN                (1700)
-#define LEG_SERVO_3_PWM_MAX                (4900)
-#define LEG_SERVO_4_PWM_MIN                (4000)
-#define LEG_SERVO_4_PWM_MAX                (7200)
+#define LEG_SERVO_1_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
+#define LEG_SERVO_1_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
+#define LEG_SERVO_2_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
+#define LEG_SERVO_2_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
+#define LEG_SERVO_3_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
+#define LEG_SERVO_3_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
+#define LEG_SERVO_4_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
+#define LEG_SERVO_4_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
 #define LEG_LEFT_JOINT_A_SERVO             (0U) // old steer_1, front/upper
 #define LEG_LEFT_JOINT_B_SERVO             (2U) // old steer_3, rear/lower
 #define LEG_RIGHT_JOINT_A_SERVO            (1U) // old steer_2, front/upper
