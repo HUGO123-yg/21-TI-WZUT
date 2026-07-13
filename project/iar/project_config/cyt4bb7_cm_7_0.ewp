@@ -1197,6 +1197,12 @@
             <name>$PROJ_DIR$\..\..\code\Rotation_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Terrain_vision.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Terrain_vision.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Wheel_driver.c</name>
         </file>
         <file>

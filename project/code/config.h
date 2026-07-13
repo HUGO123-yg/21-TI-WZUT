@@ -96,6 +96,28 @@
 #define NAVIGATION_HEADING_KP                    (2.0f)
 #define NAVIGATION_MAX_YAW_RATE_RAD_S            (1.5f)
 
+// Headless MT9V03X terrain recognition. The detector keeps an internal road
+// region only to reject background pixels; it does not publish steering lines
+// or draw to an LCD. Recognition results are observational and do not trigger
+// bridge, bumpy-road, step or jump control until a separate arbiter is added.
+#define TERRAIN_VISION_ENABLE                    (1U)
+#define TERRAIN_VISION_DARK_SCENE_AVERAGE        (70U)
+#define TERRAIN_VISION_THRESHOLD_FLOOR_DARK      (75U)
+#define TERRAIN_VISION_THRESHOLD_FLOOR_NORMAL    (92U)
+#define TERRAIN_VISION_BAND_DARK_PERCENT         (62U)
+#define TERRAIN_VISION_BUMPY_MIN_WIDTH_PERCENT   (45U)
+#define TERRAIN_VISION_BUMPY_MIN_STRIPS          (3U)
+#define TERRAIN_VISION_SCORE_MAX                 (8U)
+#define TERRAIN_VISION_BUMPY_CONFIRM_FRAMES      (2U)
+#define TERRAIN_VISION_STEP_CONFIRM_FRAMES       (3U)
+#define TERRAIN_VISION_BRIDGE_CONFIRM_FRAMES     (3U)
+#define TERRAIN_VISION_OBSTACLE_CONFIRM_FRAMES   (3U)
+#define TERRAIN_VISION_RELEASE_SCORE             (1U)
+#define TERRAIN_VISION_EXPOSURE_UPDATE_FRAMES    (10U)
+#define TERRAIN_VISION_EXPOSURE_MIN              (40U)
+#define TERRAIN_VISION_EXPOSURE_MAX              (650U)
+#define TERRAIN_VISION_EXPOSURE_STEP             (10U)
+
 // Balance gains are deliberately zero until the motor direction, IMU sign and
 // vehicle masses are verified. The control structure is operational, but zero
 // gains plus CONTROL_ENABLE_ON_BOOT=0 make the default firmware stationary.

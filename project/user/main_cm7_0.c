@@ -36,6 +36,7 @@
 #include "zf_common_headfile.h"
 #include "config.h"
 #include "Control_system.h"
+#include "Terrain_vision.h"
 // 打开新的工程或者工程移动了位置务必执行以下操作
 // 第一步 关闭上面所有打开的文件
 // 第二步 project->clean  等待下方进度条走完
@@ -66,6 +67,11 @@ int main(void)
         zf_log(0, "control system init error.");
     }
 
+    if (TERRAIN_VISION_STATUS_OK != terrain_vision_init())
+    {
+        zf_log(0, "terrain vision init error.");
+    }
+
 
 
     pit_ms_init(PIT_CH0,1);
@@ -73,6 +79,8 @@ int main(void)
     // 此处编写用户代码 例如外设初始化代码等
     while(true)
     {
+        terrain_vision_task();
+
         // 此处编写需要循环执行的代码
 //          CYT2_D_motor_ctrl(1000,1000);
 //      printf("%d,%d,%d\n",imu660rb_gyro_x, imu660rb_gyro_y, imu660rb_gyro_z);

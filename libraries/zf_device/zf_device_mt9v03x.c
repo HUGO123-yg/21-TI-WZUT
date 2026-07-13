@@ -86,9 +86,11 @@ static void mt9v03x_trig_init(void)
 
     cy_stc_sysint_irq_t mt9v03x_trig_irq_cfg;
     mt9v03x_trig_irq_cfg.sysIntSrc  = tcpwm_0_interrupts_59_IRQn; 
-    mt9v03x_trig_irq_cfg.intIdx     = CPUIntIdx3_IRQn;
+    // Keep camera frame-copy work off the UART interrupt line and below the
+    // 1 ms balance-control PIT priority.
+    mt9v03x_trig_irq_cfg.intIdx     = CPUIntIdx5_IRQn;
     mt9v03x_trig_irq_cfg.isEnabled  = true;
-    interrupt_init(&mt9v03x_trig_irq_cfg, camera_finish_callback, 0);
+    interrupt_init(&mt9v03x_trig_irq_cfg, camera_finish_callback, 4);
 
     cy_stc_tcpwm_counter_config_t tcpwm_camera_config;
     memset(&tcpwm_camera_config, 0, sizeof(tcpwm_camera_config));
@@ -105,7 +107,7 @@ static void mt9v03x_trig_init(void)
     Cy_Tcpwm_Counter_Init(TCPWM0_GRP0_CNT59, &tcpwm_camera_config);
     Cy_Tcpwm_Counter_Enable(TCPWM0_GRP0_CNT59);
     Cy_Tcpwm_Counter_SetTC_IntrMask(TCPWM0_GRP0_CNT59);
-    Cy_Tcpwm_TriggerStart(TCPWM0_GRP0_CNT60);
+    Cy_Tcpwm_TriggerStart(TCPWM0_GRP0_CNT59);
 }
 
 
