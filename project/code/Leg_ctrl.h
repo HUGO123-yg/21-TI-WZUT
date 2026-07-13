@@ -55,6 +55,10 @@ leg_ctrl_status_t leg_ctrl_set_target_offset(float x_offset_m,
                                              float z_offset_m);
 leg_ctrl_status_t leg_ctrl_update(float roll_rad,
                                   float roll_rate_rad_s);
+// Applies a scripted target in one update, bypassing the normal slew limit.
+// Intended for fixed-time actions such as jumping, not normal balance control.
+leg_ctrl_status_t leg_ctrl_move_to_offset_immediate(float x_offset_m,
+                                                    float z_offset_m);
 void leg_ctrl_disable_output(void);
 uint8 leg_ctrl_is_ready(void);
 const leg_ctrl_state_t *leg_ctrl_get_state(void);

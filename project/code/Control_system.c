@@ -12,6 +12,32 @@ static uint32 last_wheel_frame_count;
 static uint32 fast_divider;
 static uint32 fast_step_count;
 static balance_command_t requested_command;
+static uint8 restore_balance_after_jump;
+
+static void control_system_finish_jump(void)
+{
+    const jump_state_t *jump;
+
+    jump = jump_ctrl_get_state();
+    control_state.jump_active = 0U;
+    control_state.last_jump_result = (uint32)jump->result;
+    wheel_driver_stop();
+
+    if (JUMP_RESULT_COMPLETED == jump->result)
+    {
+        wheel_driver_set_stop_lock(0U);
+        if (restore_balance_after_jump
+            && !balance_ctrl_set_enabled(1U))
+        {
+            control_state.status = CONTROL_STATUS_NOT_READY;
+        }
+        restore_balance_after_jump = 0U;
+        return;
+    }
+
+    control_state.status = CONTROL_STATUS_JUMP_ERROR;
+    control_state.jump_error_count++;
+}
 
 control_status_t control_system_init(void)
 {
@@ -22,10 +48,13 @@ control_status_t control_system_init(void)
     last_wheel_frame_count = 0U;
     fast_divider = 0U;
     fast_step_count = 0U;
+    restore_balance_after_jump = 0U;
     memset(&requested_command, 0, sizeof(requested_command));
     balance_ctrl_init();
     wheel_driver_init();
     (void)leg_ctrl_init();
+    jump_ctrl_init();
+    control_state.last_jump_result = (uint32)JUMP_RESULT_IDLE;
 
     imu_status = imu_init();
     control_state.last_imu_status = (uint32)imu_status;
@@ -68,6 +97,13 @@ void control_system_tick_1ms(void)
     uint8 wheel_feedback_valid;
 
     control_state.scheduler_tick_ms++;
+    if (jump_ctrl_is_active())
+    {
+        // Redundant with the driver lock by design: refresh zero duty every
+        // millisecond so a stale UART command cannot survive during a jump.
+        wheel_driver_stop();
+        jump_ctrl_tick_1ms();
+    }
     fast_divider++;
     if (fast_divider < CONTROL_FAST_INTERVAL_TICKS)
     {
@@ -128,6 +164,16 @@ void control_system_tick_1ms(void)
         control_state.navigation_error_count++;
     }
 
+    if (wheel_driver_is_stop_locked())
+    {
+        wheel_driver_stop();
+        if (control_state.jump_active && !jump_ctrl_is_active())
+        {
+            control_system_finish_jump();
+        }
+        return;
+    }
+
     active_command = requested_command;
     navigation = navigation_get_state();
     if (NAVIGATION_ROUTE_CONTROL_ENABLE
@@ -186,6 +232,11 @@ uint8 control_system_set_enabled(uint8 enabled)
         return 1U;
     }
 
+    if (wheel_driver_is_stop_locked() || jump_ctrl_is_active())
+    {
+        return 0U;
+    }
+
     if ((CONTROL_STATUS_OK != control_state.status)
         || !control_state.wheel_feedback_ready
         || (control_state.wheel_feedback_age_ms
@@ -194,6 +245,75 @@ uint8 control_system_set_enabled(uint8 enabled)
         return 0U;
     }
     return balance_ctrl_set_enabled(1U);
+}
+
+uint8 control_system_start_jump(void)
+{
+    const balance_state_t *balance;
+
+    if ((CONTROL_STATUS_OK != control_state.status)
+        || jump_ctrl_is_active()
+        || wheel_driver_is_stop_locked())
+    {
+        return 0U;
+    }
+
+    balance = balance_ctrl_get_state();
+    restore_balance_after_jump = balance->enabled;
+    wheel_driver_set_stop_lock(1U);
+    (void)balance_ctrl_set_enabled(0U);
+    if (!jump_ctrl_start())
+    {
+        control_state.last_jump_result =
+            (uint32)jump_ctrl_get_state()->result;
+        wheel_driver_stop();
+        wheel_driver_set_stop_lock(0U);
+        if (restore_balance_after_jump)
+        {
+            (void)balance_ctrl_set_enabled(1U);
+        }
+        restore_balance_after_jump = 0U;
+        return 0U;
+    }
+
+    control_state.jump_active = 1U;
+    control_state.last_jump_result = (uint32)JUMP_RESULT_RUNNING;
+    return 1U;
+}
+
+uint8 control_system_abort_jump(void)
+{
+    uint8 recovered;
+
+    wheel_driver_set_stop_lock(1U);
+    (void)balance_ctrl_set_enabled(0U);
+    recovered = jump_ctrl_abort();
+    control_state.jump_active = 0U;
+    control_state.last_jump_result =
+        (uint32)jump_ctrl_get_state()->result;
+    wheel_driver_stop();
+    if (!recovered)
+    {
+        control_state.status = CONTROL_STATUS_JUMP_ERROR;
+        control_state.jump_error_count++;
+        return 0U;
+    }
+
+    wheel_driver_set_stop_lock(0U);
+    if (CONTROL_STATUS_JUMP_ERROR == control_state.status
+        && imu_is_initialized())
+    {
+        control_state.status = CONTROL_STATUS_OK;
+    }
+    if (restore_balance_after_jump
+        && !balance_ctrl_set_enabled(1U))
+    {
+        control_state.status = CONTROL_STATUS_NOT_READY;
+        restore_balance_after_jump = 0U;
+        return 0U;
+    }
+    restore_balance_after_jump = 0U;
+    return 1U;
 }
 
 void control_system_clear_faults(void)

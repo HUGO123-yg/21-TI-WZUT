@@ -321,8 +321,9 @@ leg_ctrl_status_t leg_ctrl_set_target_offset(float x_offset_m,
     return LEG_CTRL_STATUS_OK;
 }
 
-leg_ctrl_status_t leg_ctrl_update(float roll_rad,
-                                  float roll_rate_rad_s)
+static leg_ctrl_status_t leg_ctrl_update_internal(float roll_rad,
+                                                  float roll_rate_rad_s,
+                                                  uint8 immediate)
 {
     float roll_offset;
     float target_z[LEG_SIDE_COUNT];
@@ -359,13 +360,22 @@ leg_ctrl_status_t leg_ctrl_update(float roll_rad,
 
     for (side = 0U; side < LEG_SIDE_COUNT; side++)
     {
-        leg_state.commanded_x_m[side] = leg_slew(
-            leg_state.commanded_x_m[side],
-            leg_state.reference_x_m[side]
-            + leg_state.requested_x_offset_m);
-        leg_state.commanded_z_m[side] = leg_slew(
-            leg_state.commanded_z_m[side],
-            target_z[side]);
+        if (immediate)
+        {
+            leg_state.commanded_x_m[side] = leg_state.reference_x_m[side]
+                + leg_state.requested_x_offset_m;
+            leg_state.commanded_z_m[side] = target_z[side];
+        }
+        else
+        {
+            leg_state.commanded_x_m[side] = leg_slew(
+                leg_state.commanded_x_m[side],
+                leg_state.reference_x_m[side]
+                + leg_state.requested_x_offset_m);
+            leg_state.commanded_z_m[side] = leg_slew(
+                leg_state.commanded_z_m[side],
+                target_z[side]);
+        }
         leg_state.kinematics_status[side] = five_bar_inverse(
             &leg_geometry[side],
             leg_state.commanded_x_m[side],
@@ -409,6 +419,25 @@ leg_ctrl_status_t leg_ctrl_update(float roll_rad,
     leg_state.joint[LEG_SIDE_RIGHT] = solution[LEG_SIDE_RIGHT];
     leg_state.status = LEG_CTRL_STATUS_OK;
     return leg_state.status;
+}
+
+leg_ctrl_status_t leg_ctrl_update(float roll_rad,
+                                  float roll_rate_rad_s)
+{
+    return leg_ctrl_update_internal(roll_rad, roll_rate_rad_s, 0U);
+}
+
+leg_ctrl_status_t leg_ctrl_move_to_offset_immediate(float x_offset_m,
+                                                    float z_offset_m)
+{
+    leg_ctrl_status_t status;
+
+    status = leg_ctrl_set_target_offset(x_offset_m, z_offset_m);
+    if (LEG_CTRL_STATUS_OK != status)
+    {
+        return status;
+    }
+    return leg_ctrl_update_internal(0.0f, 0.0f, 1U);
 }
 
 void leg_ctrl_disable_output(void)

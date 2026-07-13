@@ -167,6 +167,18 @@
 #define LEG_MAX_ROLL_OFFSET_M              (0.0f)
 #define LEG_MAX_TARGET_STEP_M              (0.001f)
 
+// Fixed-time jump script. The jump controller commands each target directly
+// instead of waiting for contact or attitude events. +z extends the legs.
+// These provisional targets are inside the measured five-bar workspace, but
+// must still be checked with the vehicle supported before an on-ground jump.
+#define JUMP_EXTEND_TIME_MS                 (100U)
+#define JUMP_RETRACT_TIME_MS                (100U)
+#define JUMP_BUFFER_TIME_MS                 (80U)
+#define JUMP_LEG_X_OFFSET_M                 (0.0f)
+#define JUMP_EXTEND_Z_OFFSET_M              (0.060f)
+#define JUMP_RETRACT_Z_OFFSET_M             LEG_DEFAULT_Z_OFFSET_M
+#define JUMP_BUFFER_Z_OFFSET_M              (0.020f)
+
 // Servo calibration uses a common horizontal reference of 4500. One measured
 // servo reaches absolute PWM 3300 after about 90 degrees, so the provisional
 // symmetric travel is 1200 counts and the mirrored endpoint is 5700. Output

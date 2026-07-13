@@ -18,6 +18,7 @@ typedef struct
     volatile int16 right_rpm;
     volatile uint32 valid_frame_count;
     volatile uint32 invalid_frame_count;
+    volatile uint8 output_stop_locked;
 } wheel_driver_state_t;
 
 static wheel_driver_state_t wheel_state;
@@ -137,6 +138,12 @@ void wheel_driver_set_command(int16 left_command, int16 right_command)
     int16 hardware_left;
     int16 hardware_right;
 
+    if (wheel_state.output_stop_locked)
+    {
+        wheel_send_frame(WHEEL_COMMAND_SET_DUTY, 0, 0);
+        return;
+    }
+
     hardware_left = wheel_limit_command((int32)left_command
                                         * WHEEL_LEFT_COMMAND_DIRECTION);
     hardware_right = wheel_limit_command((int32)right_command
@@ -147,6 +154,20 @@ void wheel_driver_set_command(int16 left_command, int16 right_command)
 void wheel_driver_stop(void)
 {
     wheel_send_frame(WHEEL_COMMAND_SET_DUTY, 0, 0);
+}
+
+void wheel_driver_set_stop_lock(uint8 locked)
+{
+    wheel_state.output_stop_locked = (uint8)(0U != locked);
+    if (wheel_state.output_stop_locked)
+    {
+        wheel_driver_stop();
+    }
+}
+
+uint8 wheel_driver_is_stop_locked(void)
+{
+    return wheel_state.output_stop_locked;
 }
 
 void wheel_driver_request_speed(void)
