@@ -35,7 +35,7 @@
 
 #include "zf_common_headfile.h"
 #include "config.h"
-#include "Imu.h"
+#include "Control_system.h"
 // 打开新的工程或者工程移动了位置务必执行以下操作
 // 第一步 关闭上面所有打开的文件
 // 第二步 project->clean  等待下方进度条走完
@@ -52,32 +52,24 @@ int main(void)
     clock_init(SYSTEM_CLOCK_250M); 	// 时钟配置及系统初始化<务必保留>
     debug_init();                       // 调试串口信息初始化
     // 此处编写用户代码 例如外设初始化代码等
-    
-    BUZZER_init();
-    if (IMU_STATUS_OK != imu_init())
+
+    // 先初始化逐飞 Work Flash 驱动，再读取项目层的双备份路径目录。
+    // nav_flash_init() 首次上电只读取，不会无故擦写空白 Flash。
+    flash_init();
+    if (NAV_FLASH_STATUS_OK != nav_flash_init())
     {
-        zf_log(0, "imu init error.");
+        zf_log(0, "navigation flash init error.");
     }
 
-    
-    flash_init();
-    Init_Nag();
-    
-    small_driver_uart_init();
-    steer_control_init();
-    ips_init(IPS200_TYPE_SPI);
-    Key_init();
-    system_delay_ms(1000);
-    
-    
-    
+    if (CONTROL_STATUS_OK != control_system_init())
+    {
+        zf_log(0, "control system init error.");
+    }
+
+
+
     pit_ms_init(PIT_CH0,1);
-    pit_ms_init(PIT_CH1,5);
 
-    BUZZER_check(50);                       //自检
-
-    
-    
     // 此处编写用户代码 例如外设初始化代码等
     while(true)
     {
@@ -90,34 +82,25 @@ int main(void)
 //        printf("%f\r\n",Car.mileage);
 
 //      system_delay_ms(10);
-      
-        Menu();
+
+        // Flash 页写入是阻塞操作，只允许在主循环执行；中断侧录制接口
+        // 仅把采样写入 RAM 双缓冲，并通知这里处理待写页面。
+        (void)nav_flash_service();
 
         // 此处编写需要循环执行的代码
     }
 }
 
-void pit0_ch0_isr()                     // 定时器通道 0 周期中断服务函数      
+void pit0_ch0_isr()                     // 定时器通道 0 周期中断服务函数
 {
-    static uint32 imu_update_ticks = 0;
-
     pit_isr_flag_clear(PIT_CH0);
-
-    imu_update_ticks++;
-    if (imu_update_ticks >= IMU_UPDATE_INTERVAL_TICKS)
-    {
-        imu_update_ticks = 0;
-        (void)imu_update();
-    }
-    
-    pit_call_back();
+    control_system_tick_1ms();
 }
 
-void pit0_ch1_isr()                     // 定时器通道 1 周期中断服务函数      
+void pit0_ch1_isr()                     // 定时器通道 1 周期中断服务函数
 {
     pit_isr_flag_clear(PIT_CH1);
-    
-    key_scan();
+
 }
 
 

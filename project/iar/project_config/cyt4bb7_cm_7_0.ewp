@@ -1116,16 +1116,16 @@
     <group>
         <name>code</name>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Body_ctrl.c</name>
+            <name>$PROJ_DIR$\..\..\code\Balance_ctrl.c</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Body_ctrl.h</name>
+            <name>$PROJ_DIR$\..\..\code\Balance_ctrl.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Common_peripherals.c</name>
+            <name>$PROJ_DIR$\..\..\code\Control_system.c</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Common_peripherals.h</name>
+            <name>$PROJ_DIR$\..\..\code\Control_system.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\config.h</name>
@@ -1143,19 +1143,34 @@
             <name>$PROJ_DIR$\..\..\code\Imu.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Menu.c</name>
+            <name>$PROJ_DIR$\..\..\code\Inverted_pendulum.c</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\Menu.h</name>
+            <name>$PROJ_DIR$\..\..\code\Inverted_pendulum.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.c</name>
+            <name>$PROJ_DIR$\..\..\code\Five_bar.c</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.h</name>
+            <name>$PROJ_DIR$\..\..\code\Five_bar.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\日志.txt</name>
+            <name>$PROJ_DIR$\..\..\code\Leg_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Leg_ctrl.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Pid.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Pid.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Wheel_driver.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Wheel_driver.h</name>
         </file>
     </group>
     <group>
