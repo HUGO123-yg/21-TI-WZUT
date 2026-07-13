@@ -47,11 +47,11 @@ nav_flash_status_t nav_flash_init(void);
 // record_stop requests a flush. route_id is in the range 1..3.
 nav_flash_status_t nav_flash_record_start(uint8 route_id);
 
-// Add forward distance and record yaw whenever NAV_FLASH_SAMPLE_DISTANCE is
-// crossed. This function performs no Flash I/O and may run in a periodic ISR.
-// distance_delta must be finite and non-negative.
+// Add forward distance in metres and record yaw whenever
+// NAV_FLASH_SAMPLE_DISTANCE_M is crossed. This function performs no Flash I/O
+// and may run in a periodic ISR. distance_delta_m must be finite and non-negative.
 nav_flash_status_t nav_flash_record_sample(float yaw_deg,
-                                            float distance_delta);
+                                            float distance_delta_m);
 
 // Request final-page and metadata commit. Completion is asynchronous; call
 // nav_flash_service() from the main loop until the state becomes IDLE.

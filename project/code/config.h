@@ -29,6 +29,17 @@
 #define IMU_GYRO_BIAS_Y_DPS              (0.0f)
 #define IMU_GYRO_BIAS_Z_DPS              (0.0f)
 
+// Estimate the remaining gyro bias while the vehicle is stationary at boot.
+// Initialization deliberately fails if too few stationary samples are found;
+// the control stack must not balance from an uncalibrated rate signal.
+#define IMU_STARTUP_CALIBRATION_ENABLE          (1U)
+#define IMU_STARTUP_CALIBRATION_SAMPLES         (200U)
+#define IMU_STARTUP_CALIBRATION_MIN_VALID       (180U)
+#define IMU_STARTUP_CALIBRATION_DELAY_MS        (5U)
+#define IMU_STARTUP_CALIBRATION_MAX_GYRO_DPS    (5.0f)
+#define IMU_STARTUP_CALIBRATION_MIN_G           (0.90f)
+#define IMU_STARTUP_CALIBRATION_MAX_G           (1.10f)
+
 // Two-state Kalman filter parameters: angle and gyro bias.
 #define IMU_KALMAN_Q_ANGLE               (0.001f)
 #define IMU_KALMAN_Q_BIAS                (0.003f)
@@ -45,6 +56,7 @@
 #define CONTROL_FAST_PERIOD_S             IMU_UPDATE_PERIOD_S
 #define CONTROL_SPEED_INTERVAL_STEPS      (4U)    // 50 Hz at a 200 Hz fast loop
 #define CONTROL_LEG_INTERVAL_STEPS        (2U)    // 100 Hz at a 200 Hz fast loop
+#define CONTROL_WHEEL_REQUEST_INTERVAL_STEPS (4U) // request feedback at 50 Hz
 
 // The vehicle must be explicitly enabled after initialization. Keeping this at
 // zero prevents uncalibrated gains or actuator directions from moving the car.
@@ -66,6 +78,23 @@
 #define WHEEL_RIGHT_SPEED_DIRECTION        (-1)
 #define WHEEL_MAX_COMMAND                  (3000)
 #define WHEEL_DIAMETER_M                    (0.062f)
+
+// Planar navigation runs continuously for logging and route recording. Wheel
+// differential heading remains disabled until the effective track width has
+// been measured on the assembled vehicle.
+#define NAVIGATION_ENABLE                       (1U)
+#define NAVIGATION_USE_WHEEL_YAW_CORRECTION     (0U)
+#define NAVIGATION_WHEEL_TRACK_WIDTH_M          (0.0f) // awaiting measurement
+#define NAVIGATION_WHEEL_YAW_RATE_WEIGHT        (0.05f)
+#define NAVIGATION_STATIONARY_SPEED_M_S         (0.02f)
+#define NAVIGATION_STATIONARY_GYRO_DPS          (1.0f)
+#define NAVIGATION_GYRO_BIAS_LEARNING_RATE      (0.002f)
+
+// Route replay computes an outer-loop yaw-rate command, but does not apply it
+// to the wheel controller until signs, track width and gains are verified.
+#define NAVIGATION_ROUTE_CONTROL_ENABLE         (0U)
+#define NAVIGATION_HEADING_KP                    (2.0f)
+#define NAVIGATION_MAX_YAW_RATE_RAD_S            (1.5f)
 
 // Balance gains are deliberately zero until the motor direction, IMU sign and
 // vehicle masses are verified. The control structure is operational, but zero
@@ -204,9 +233,9 @@
 #define NAV_FLASH_SAMPLES_PER_PAGE        (500U)
 #define NAV_FLASH_REPLAY_MAX_SAMPLES      (15500U)
 
-// A new yaw sample is recorded after this much forward travel. The caller must
-// pass distance_delta in the same distance unit used here.
-#define NAV_FLASH_SAMPLE_DISTANCE         (5.0f)
+// A new relative-yaw sample is recorded every 5 cm of forward travel. All
+// navigation and route-recorder distance values use metres.
+#define NAV_FLASH_SAMPLE_DISTANCE_M       (0.05f)
 
 // Yaw is stored as signed centi-degrees instead of float. This avoids storing
 // compiler-dependent floating-point representations in persistent data.

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "Imu.h"
+#include "Navigation.h"
 #include "Wheel_driver.h"
 #include "config.h"
 
@@ -10,20 +11,24 @@ static control_system_state_t control_state;
 static uint32 last_wheel_frame_count;
 static uint32 fast_divider;
 static uint32 fast_step_count;
+static balance_command_t requested_command;
 
 control_status_t control_system_init(void)
 {
     imu_status_t imu_status;
+    navigation_status_t navigation_status;
 
     memset(&control_state, 0, sizeof(control_state));
     last_wheel_frame_count = 0U;
     fast_divider = 0U;
     fast_step_count = 0U;
+    memset(&requested_command, 0, sizeof(requested_command));
     balance_ctrl_init();
     wheel_driver_init();
     (void)leg_ctrl_init();
 
     imu_status = imu_init();
+    control_state.last_imu_status = (uint32)imu_status;
     if (IMU_STATUS_OK != imu_status)
     {
         control_state.status = CONTROL_STATUS_IMU_ERROR;
@@ -31,6 +36,13 @@ control_status_t control_system_init(void)
         balance_ctrl_force_fault(BALANCE_FAULT_IMU);
         wheel_driver_stop();
         return control_state.status;
+    }
+
+    navigation_status = navigation_init(imu_get_data());
+    control_state.last_navigation_status = (uint32)navigation_status;
+    if (NAVIGATION_STATUS_OK != navigation_status)
+    {
+        control_state.navigation_error_count++;
     }
 
     control_state.status = CONTROL_STATUS_OK;
@@ -47,8 +59,13 @@ void control_system_tick_1ms(void)
     const imu_data_t *imu;
     const balance_state_t *balance;
     const balance_command_t *command;
+    const navigation_state_t *navigation;
+    balance_command_t active_command;
+    imu_status_t imu_status;
     leg_ctrl_status_t leg_status;
+    navigation_status_t navigation_status;
     uint8 run_speed_loop;
+    uint8 wheel_feedback_valid;
 
     control_state.scheduler_tick_ms++;
     fast_divider++;
@@ -59,7 +76,9 @@ void control_system_tick_1ms(void)
     fast_divider = 0U;
     fast_step_count++;
 
-    if (IMU_STATUS_OK != imu_update())
+    imu_status = imu_update();
+    control_state.last_imu_status = (uint32)imu_status;
+    if (IMU_STATUS_OK != imu_status)
     {
         control_state.status = CONTROL_STATUS_IMU_ERROR;
         control_state.imu_error_count++;
@@ -81,6 +100,11 @@ void control_system_tick_1ms(void)
             (uint32)(CONTROL_FAST_PERIOD_S * 1000.0f + 0.5f);
     }
 
+    if ((fast_step_count % CONTROL_WHEEL_REQUEST_INTERVAL_STEPS) == 0U)
+    {
+        wheel_driver_request_speed();
+    }
+
     balance = balance_ctrl_get_state();
     if (balance->enabled
         && (!control_state.wheel_feedback_ready
@@ -91,6 +115,35 @@ void control_system_tick_1ms(void)
     }
 
     imu = imu_get_data();
+    wheel_feedback_valid = (uint8)(control_state.wheel_feedback_ready
+        && (control_state.wheel_feedback_age_ms
+            <= CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS));
+    navigation_status = navigation_update(imu,
+                                          &wheel_feedback,
+                                          wheel_feedback_valid,
+                                          CONTROL_FAST_PERIOD_S);
+    control_state.last_navigation_status = (uint32)navigation_status;
+    if (NAVIGATION_STATUS_OK != navigation_status)
+    {
+        control_state.navigation_error_count++;
+    }
+
+    active_command = requested_command;
+    navigation = navigation_get_state();
+    if (NAVIGATION_ROUTE_CONTROL_ENABLE
+        && (NAVIGATION_MODE_REPLAYING == navigation->mode))
+    {
+        active_command.target_yaw_rate_rad_s
+            = navigation->target_yaw_rate_rad_s;
+    }
+    else if (NAVIGATION_ROUTE_CONTROL_ENABLE
+             && (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode))
+    {
+        active_command.target_speed_m_s = 0.0f;
+        active_command.target_yaw_rate_rad_s = 0.0f;
+    }
+    balance_ctrl_set_command(&active_command);
+
     run_speed_loop = (uint8)((fast_step_count
                               % CONTROL_SPEED_INTERVAL_STEPS) == 0U);
     balance_ctrl_update(imu, &wheel_feedback, run_speed_loop);
@@ -118,7 +171,10 @@ void control_system_tick_1ms(void)
 
 void control_system_set_command(const balance_command_t *command)
 {
-    balance_ctrl_set_command(command);
+    if (0 != command)
+    {
+        requested_command = *command;
+    }
 }
 
 uint8 control_system_set_enabled(uint8 enabled)

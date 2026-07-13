@@ -127,7 +127,7 @@ static uint8 nav_flash_config_is_valid(void)
         || (NAV_FLASH_META_ROUTE_BASE_WORD
             + NAV_FLASH_ROUTE_COUNT * NAV_FLASH_META_ROUTE_WORDS
             >= NAV_FLASH_META_CRC_WORD)
-        || (NAV_FLASH_SAMPLE_DISTANCE <= 0.0f)
+        || (NAV_FLASH_SAMPLE_DISTANCE_M <= 0.0f)
         || (NAV_FLASH_YAW_SCALE <= 0.0f)
         || (NAV_FLASH_WRITE_RETRY_COUNT == 0U))
     {
@@ -523,7 +523,7 @@ nav_flash_status_t nav_flash_record_start(uint8 route_id)
 }
 
 nav_flash_status_t nav_flash_record_sample(float yaw_deg,
-                                            float distance_delta)
+                                            float distance_delta_m)
 {
     uint8 route_index;
 
@@ -533,18 +533,18 @@ nav_flash_status_t nav_flash_record_sample(float yaw_deg,
                ? NAV_FLASH_STATUS_NOT_INITIALIZED : NAV_FLASH_STATUS_BUSY;
     }
     if ((yaw_deg != yaw_deg)
-        || (distance_delta != distance_delta)
+        || (distance_delta_m != distance_delta_m)
         || (yaw_deg > FLT_MAX)
         || (yaw_deg < -FLT_MAX)
-        || (distance_delta < 0.0f)
-        || (distance_delta > FLT_MAX))
+        || (distance_delta_m < 0.0f)
+        || (distance_delta_m > FLT_MAX))
     {
         return NAV_FLASH_STATUS_INVALID_ARGUMENT;
     }
 
     route_index = (uint8)(record_route_id - 1U);
-    record_distance += distance_delta;
-    while (record_distance >= NAV_FLASH_SAMPLE_DISTANCE)
+    record_distance += distance_delta_m;
+    while (record_distance >= NAV_FLASH_SAMPLE_DISTANCE_M)
     {
         nav_flash_status_t status;
 
@@ -567,7 +567,7 @@ nav_flash_status_t nav_flash_record_sample(float yaw_deg,
             = (uint32)nav_flash_encode_yaw(yaw_deg);
         active_sample_count++;
         record_sample_count++;
-        record_distance -= NAV_FLASH_SAMPLE_DISTANCE;
+        record_distance -= NAV_FLASH_SAMPLE_DISTANCE_M;
 
         if ((active_sample_count >= NAV_FLASH_SAMPLES_PER_PAGE)
             && (pending_buffer == NAV_FLASH_NO_BUFFER))

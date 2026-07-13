@@ -1161,6 +1161,12 @@
             <name>$PROJ_DIR$\..\..\code\Leg_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Navigation.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Navigation.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Pid.c</name>
         </file>
         <file>

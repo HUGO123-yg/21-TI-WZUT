@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "zf_device_imu660rb.h"
+#include "zf_driver_delay.h"
 
 #define IMU_AXIS_COUNT                  (3U)
 #define IMU_X                           (0U)
@@ -22,6 +23,7 @@ typedef struct
 static imu_data_t imu_data;
 static imu_kalman_filter_t roll_filter;
 static imu_kalman_filter_t pitch_filter;
+static float startup_gyro_bias_dps[IMU_AXIS_COUNT];
 static uint8 imu_initialized;
 
 static float imu_wrap_angle(float angle_deg)
@@ -46,6 +48,14 @@ static uint8 imu_config_is_valid(void)
         || (IMU_UPDATE_PERIOD_S <= 0.0f)
         || (IMU_ACCEL_LSB_PER_G <= 0.0f)
         || (IMU_GYRO_LSB_PER_DPS <= 0.0f)
+        || (IMU_STARTUP_CALIBRATION_SAMPLES == 0U)
+        || (IMU_STARTUP_CALIBRATION_MIN_VALID == 0U)
+        || (IMU_STARTUP_CALIBRATION_MIN_VALID
+            > IMU_STARTUP_CALIBRATION_SAMPLES)
+        || (IMU_STARTUP_CALIBRATION_MAX_GYRO_DPS <= 0.0f)
+        || (IMU_STARTUP_CALIBRATION_MIN_G < 0.0f)
+        || (IMU_STARTUP_CALIBRATION_MAX_G
+            <= IMU_STARTUP_CALIBRATION_MIN_G)
         || (IMU_KALMAN_Q_ANGLE < 0.0f)
         || (IMU_KALMAN_Q_BIAS < 0.0f)
         || (IMU_KALMAN_R_MEASUREMENT <= 0.0f)
@@ -171,12 +181,81 @@ static void imu_read_sample(void)
             - acc_bias[axis];
         imu_data.gyro_dps[axis] = direction[axis]
             * ((float)imu_data.raw_gyro[axis] / IMU_GYRO_LSB_PER_DPS)
-            - gyro_bias[axis];
+            - gyro_bias[axis]
+            - startup_gyro_bias_dps[axis];
     }
 
     imu_data.acc_norm_g = sqrtf(imu_data.acc_g[IMU_X] * imu_data.acc_g[IMU_X]
                                 + imu_data.acc_g[IMU_Y] * imu_data.acc_g[IMU_Y]
                                 + imu_data.acc_g[IMU_Z] * imu_data.acc_g[IMU_Z]);
+}
+
+static uint8 imu_sample_is_stationary(void)
+{
+    uint8 axis;
+
+    if ((imu_data.acc_norm_g < IMU_STARTUP_CALIBRATION_MIN_G)
+        || (imu_data.acc_norm_g > IMU_STARTUP_CALIBRATION_MAX_G))
+    {
+        return 0U;
+    }
+
+    for (axis = 0U; axis < IMU_AXIS_COUNT; axis++)
+    {
+        if (fabsf(imu_data.gyro_dps[axis])
+            > IMU_STARTUP_CALIBRATION_MAX_GYRO_DPS)
+        {
+            return 0U;
+        }
+    }
+    return 1U;
+}
+
+static imu_status_t imu_calibrate_gyro(void)
+{
+    float bias_sum[IMU_AXIS_COUNT] = {0.0f, 0.0f, 0.0f};
+    uint32 sample;
+    uint32 valid_sample_count = 0U;
+    uint8 axis;
+
+    memset(startup_gyro_bias_dps, 0, sizeof(startup_gyro_bias_dps));
+    if (!IMU_STARTUP_CALIBRATION_ENABLE)
+    {
+        imu_data.calibration_sample_count = 0U;
+        return IMU_STATUS_OK;
+    }
+
+    for (sample = 0U; sample < IMU_STARTUP_CALIBRATION_SAMPLES; sample++)
+    {
+        imu_read_sample();
+        if (imu_sample_is_stationary())
+        {
+            for (axis = 0U; axis < IMU_AXIS_COUNT; axis++)
+            {
+                bias_sum[axis] += imu_data.gyro_dps[axis];
+            }
+            valid_sample_count++;
+        }
+        if ((sample + 1U) < IMU_STARTUP_CALIBRATION_SAMPLES)
+        {
+            system_delay_ms(IMU_STARTUP_CALIBRATION_DELAY_MS);
+        }
+    }
+
+    imu_data.calibration_sample_count = valid_sample_count;
+    if (valid_sample_count < IMU_STARTUP_CALIBRATION_MIN_VALID)
+    {
+        return IMU_STATUS_CALIBRATION_ERROR;
+    }
+
+    for (axis = 0U; axis < IMU_AXIS_COUNT; axis++)
+    {
+        startup_gyro_bias_dps[axis]
+            = bias_sum[axis] / (float)valid_sample_count;
+        imu_data.startup_gyro_bias_dps[axis] = startup_gyro_bias_dps[axis];
+    }
+    imu_read_sample();
+    return IMU_STATUS_OK;
 }
 
 static void imu_get_acc_angles(float *roll_deg, float *pitch_deg)
@@ -198,6 +277,7 @@ imu_status_t imu_init(void)
     memset(&imu_data, 0, sizeof(imu_data));
     memset(&roll_filter, 0, sizeof(roll_filter));
     memset(&pitch_filter, 0, sizeof(pitch_filter));
+    memset(startup_gyro_bias_dps, 0, sizeof(startup_gyro_bias_dps));
 
     if (!imu_config_is_valid())
     {
@@ -208,7 +288,11 @@ imu_status_t imu_init(void)
         return IMU_STATUS_DRIVER_ERROR;
     }
 
-    imu_read_sample();
+    status = imu_calibrate_gyro();
+    if (IMU_STATUS_OK != status)
+    {
+        return status;
+    }
     imu_initialized = 1;
     status = imu_reset_attitude(0.0f);
     if (IMU_STATUS_OK != status)

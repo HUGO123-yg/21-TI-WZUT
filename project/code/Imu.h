@@ -8,7 +8,8 @@ typedef enum
     IMU_STATUS_OK = 0,
     IMU_STATUS_NOT_INITIALIZED,
     IMU_STATUS_DRIVER_ERROR,
-    IMU_STATUS_INVALID_CONFIG
+    IMU_STATUS_INVALID_CONFIG,
+    IMU_STATUS_CALIBRATION_ERROR
 } imu_status_t;
 
 typedef struct
@@ -21,7 +22,9 @@ typedef struct
     float roll_deg;
     float pitch_deg;
     float yaw_deg;
+    float startup_gyro_bias_dps[3];
     uint32 sample_count;
+    uint32 calibration_sample_count;
     uint8 accel_correction_used;
 } imu_data_t;
 

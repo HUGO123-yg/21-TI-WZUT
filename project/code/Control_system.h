@@ -19,6 +19,9 @@ typedef struct
     uint32 wheel_feedback_age_ms;
     uint32 imu_error_count;
     uint32 leg_error_count;
+    uint32 navigation_error_count;
+    uint32 last_imu_status;
+    uint32 last_navigation_status;
     uint8 wheel_feedback_ready;
 } control_system_state_t;
 
