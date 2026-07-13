@@ -1128,6 +1128,9 @@
             <name>$PROJ_DIR$\..\..\code\Common_peripherals.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\config.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Flash.c</name>
         </file>
         <file>

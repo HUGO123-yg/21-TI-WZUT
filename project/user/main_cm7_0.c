@@ -34,6 +34,8 @@
 ********************************************************************************************************************/
 
 #include "zf_common_headfile.h"
+#include "config.h"
+#include "Imu.h"
 // 打开新的工程或者工程移动了位置务必执行以下操作
 // 第一步 关闭上面所有打开的文件
 // 第二步 project->clean  等待下方进度条走完
@@ -52,16 +54,16 @@ int main(void)
     // 此处编写用户代码 例如外设初始化代码等
     
     BUZZER_init();
-//    imu963ra_init();
-//    imu660ra_init();
-      imu660rb_init();
+    if (IMU_STATUS_OK != imu_init())
+    {
+        zf_log(0, "imu init error.");
+    }
 
     
     flash_init();
     Init_Nag();
     
     small_driver_uart_init();
-    balance_cascade_init();
     steer_control_init();
     ips_init(IPS200_TYPE_SPI);
     Key_init();
@@ -97,14 +99,18 @@ int main(void)
 
 void pit0_ch0_isr()                     // 定时器通道 0 周期中断服务函数      
 {
+    static uint32 imu_update_ticks = 0;
+
     pit_isr_flag_clear(PIT_CH0);
+
+    imu_update_ticks++;
+    if (imu_update_ticks >= IMU_UPDATE_INTERVAL_TICKS)
+    {
+        imu_update_ticks = 0;
+        (void)imu_update();
+    }
     
     pit_call_back();
-    
-//    imu660rb_get_gyro();                             // 获取 IMU660RA 陀螺仪数据
-//    imu660rb_get_acc();                              // 获取 IMU660RA 加速度计数据
-//    quaternion_module_calculate(&roll_balance_cascade); // 计算四元数，更新姿态数据
-    
 }
 
 void pit0_ch1_isr()                     // 定时器通道 1 周期中断服务函数      
