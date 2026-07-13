@@ -20,6 +20,9 @@ typedef struct
     float target_yaw_rate_rad_s;
     float target_leg_x_offset_m;
     float target_leg_z_offset_m;
+    // When set, speed is controlled by the common leg x offset. The wheel
+    // controller keeps its pitch reference at BALANCE_PITCH_ZERO_RAD.
+    uint8 use_leg_speed_control;
 } balance_command_t;
 
 typedef struct
@@ -35,6 +38,7 @@ typedef struct
     float yaw_command;
     int16 left_wheel_command;
     int16 right_wheel_command;
+    uint8 leg_speed_control_active;
 } balance_state_t;
 
 void balance_ctrl_init(void);

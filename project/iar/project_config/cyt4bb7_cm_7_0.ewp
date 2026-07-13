@@ -1122,6 +1122,18 @@
             <name>$PROJ_DIR$\..\..\code\Balance_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Bridge_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Bridge_ctrl.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Bumpy_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Bumpy_ctrl.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Control_system.c</name>
         </file>
         <file>
@@ -1177,6 +1189,12 @@
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Pid.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation_ctrl.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation_ctrl.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Wheel_driver.c</name>

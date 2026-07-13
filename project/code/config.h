@@ -115,6 +115,25 @@
 #define BALANCE_PITCH_ZERO_RAD              (0.0f)
 #define BALANCE_WHEEL_OUTPUT_DIRECTION      (1.0f)
 
+// Zero-radius rotation is an outer angle loop that commands the existing yaw
+// rate PI. Positive yaw is expected to be counter-clockwise, so clockwise is
+// provisionally negative. Verify this sign with the vehicle lifted.
+#define ROTATION_CONTROL_ENABLE             (1U)
+#define ROTATION_CW_YAW_SIGN                (-1)
+#define ROTATION_MAX_TURNS                  (5.0f)
+#define ROTATION_MIN_YAW_RATE_RAD_S         (0.20f)
+#define ROTATION_MAX_YAW_RATE_RAD_S         (1.20f)
+#define ROTATION_ANGLE_KP_RAD_S_PER_RAD     (0.30f)
+#define ROTATION_MAX_YAW_ACCEL_RAD_S2       (4.0f)
+#define ROTATION_ANGLE_TOLERANCE_DEG        (3.0f)
+#define ROTATION_SETTLE_YAW_RATE_RAD_S      (0.10f)
+#define ROTATION_SETTLE_STEPS               (20U)   // 100 ms at 200 Hz
+
+// Timeout scales with the requested turns. These values allow roughly two
+// seconds of setup plus eight seconds per full turn before holding zero speed.
+#define ROTATION_TIMEOUT_BASE_STEPS         (400U)
+#define ROTATION_TIMEOUT_PER_TURN_STEPS     (1600U)
+
 // Optional four-state inverted-pendulum feedback. Leave disabled until the
 // physical model has been identified and K gains have been calculated. Gains
 // include the conversion from model force/torque to wheel-driver command.
@@ -165,7 +184,93 @@
 #define LEG_ROLL_KD_M_PER_RAD_S            (0.0f)
 #define LEG_ROLL_DIRECTION                  (1.0f)
 #define LEG_MAX_ROLL_OFFSET_M              (0.0f)
+#define LEG_MAX_DIFFERENTIAL_Z_OFFSET_M    (0.030f)
 #define LEG_MAX_TARGET_STEP_M              (0.001f)
+
+// Subject-3 bumpy-road control. The official ribs are 20 mm high, 25 mm wide
+// and spaced by about 100 mm. Two separated acceleration shocks are required
+// for automatic entry so a single landing or bridge edge does not claim the
+// speed-to-leg controller. A route/mileage trigger should still be preferred.
+#define BUMPY_CONTROL_ENABLE                (1U)
+#define BUMPY_AUTO_DETECT_ENABLE            (1U)
+#define BUMPY_IMPACT_DETECT_DELTA_G         (0.20f)
+#define BUMPY_IMPACT_RELEASE_DELTA_G        (0.08f)
+#define BUMPY_STABLE_DELTA_G                (0.05f)
+#define BUMPY_IMPACT_REQUIRED_COUNT         (2U)
+#define BUMPY_IMPACT_REFRACTORY_STEPS       (10U)  // 50 ms at 200 Hz
+#define BUMPY_DETECT_WINDOW_STEPS           (160U) // 800 ms
+
+// The rules do not define the total ribbed-section length. This distance is a
+// provisional route parameter and must be replaced by the measured course
+// value. The timeout guarantees that a missed odometry update releases control.
+#define BUMPY_CROSSING_DISTANCE_M           (1.00f)
+#define BUMPY_CROSSING_TIMEOUT_STEPS        (1200U) // 6 s
+#define BUMPY_RECOVER_STABLE_STEPS          (20U)   // 100 ms
+#define BUMPY_RECOVER_TIMEOUT_STEPS         (200U)  // 1 s
+
+// During crossing, the speed PI directly changes the common leg x offset.
+// Balance_ctrl then fixes pitch reference at the calibrated zero and uses only
+// the pitch/pitch-rate loops for wheel stabilization. Gains remain zero until
+// leg-x direction and usable travel have been verified on the supported car.
+#define BUMPY_SPEED_KP_M_PER_M_S            (0.0f)
+#define BUMPY_SPEED_KI_M_PER_M              (0.0f)
+#define BUMPY_SPEED_TO_LEG_DIRECTION        (1.0f)
+#define BUMPY_MAX_SPEED_LEG_X_OFFSET_M      (0.020f)
+#define BUMPY_MAX_TOTAL_LEG_X_OFFSET_M      (0.025f)
+#define BUMPY_MAX_LEG_X_STEP_M              (0.00025f)
+
+// Extending both legs by 20 mm creates clearance/compliance for the 20 mm
+// ribs. Speed and steering are capped to reduce wheel unloading and yaw kicks.
+#define BUMPY_BODY_Z_OFFSET_M               (0.020f)
+#define BUMPY_MAX_SPEED_M_S                 (0.30f)
+#define BUMPY_YAW_RATE_SCALE                (0.50f)
+#define BUMPY_MAX_YAW_RATE_RAD_S            (0.60f)
+
+// Single-side bridge control. The bridge layer leaves the pitch balance loop
+// in charge of both wheels, limits forward/yaw commands, and asks Leg_ctrl for
+// a symmetric left/right z difference. It is automatically held disabled when
+// LEG_CONTROL_ENABLE is zero or leg_ctrl_init() is not ready.
+#define BRIDGE_CONTROL_ENABLE               (1U)
+#define BRIDGE_AUTO_DETECT_ENABLE           (1U)
+
+// State-machine thresholds use the 200 Hz fast-control sample. Detection is
+// deliberately shorter than the distance-based crossing state; do not exit a
+// crossing just because the compensation itself has reduced roll toward zero.
+#define BRIDGE_ROLL_DETECT_RAD              (0.08726646f) // 5 degrees
+#define BRIDGE_ROLL_RECOVER_RAD             (0.01745329f) // 1 degree
+#define BRIDGE_DETECT_STEPS                 (8U)          // 40 ms
+#define BRIDGE_ENTER_STEPS                  (20U)         // 100 ms
+#define BRIDGE_EXIT_STEPS                   (20U)         // 100 ms
+#define BRIDGE_RECOVER_STEPS                (20U)         // 100 ms stable
+#define BRIDGE_RECOVER_TIMEOUT_STEPS        (400U)        // 2 s guard
+#define BRIDGE_CROSSING_TIMEOUT_STEPS       (800U)        // 4 s guard
+#define BRIDGE_CROSSING_DISTANCE_M          (0.20f)       // verify on course
+
+// Geometry feedforward estimates half of the left/right ground-height
+// difference as 0.5 * support_span * tan(entry_roll). The 0.10 m span is a
+// provisional chassis value and must be replaced by the measured distance
+// between the two wheel contact lines. Change the direction sign only after a
+// lifted-car roll-direction test.
+#define BRIDGE_LATERAL_SUPPORT_SPAN_M       (0.10f)
+#define BRIDGE_ROLL_TO_LEG_DIRECTION        (1.0f)
+#define BRIDGE_FORCED_ENTRY_ROLL_RAD        BRIDGE_ROLL_DETECT_RAD
+
+// Bridge-only roll PD is added to the latched geometry feedforward. Positive
+// differential means left leg +z and right leg -z. Larger Kp levels the body
+// more strongly; larger Kd adds damping. Excessive values cause side-to-side
+// oscillation, so the total differential and its slew rate are both limited.
+#define BRIDGE_ROLL_KP_M_PER_RAD            (0.0172f)
+#define BRIDGE_ROLL_KD_M_PER_RAD_S          (0.000012f)
+#define BRIDGE_MAX_DIFFERENTIAL_OFFSET_M    (0.015f)
+#define BRIDGE_MAX_DIFFERENTIAL_STEP_M      (0.00025f)
+
+// Keep both legs away from the horizontal reference while differential travel
+// is active, cap bridge speed, and reduce steering that could twist a wheel off
+// the narrow support. These are provisional low-speed test values.
+#define BRIDGE_BODY_Z_OFFSET_M              (0.020f)
+#define BRIDGE_MAX_SPEED_M_S                (0.26f)
+#define BRIDGE_YAW_RATE_SCALE               (0.35f)
+#define BRIDGE_MAX_YAW_RATE_RAD_S           (0.50f)
 
 // Fixed-time jump script. The jump controller commands each target directly
 // instead of waiting for contact or attitude events. +z extends the legs.

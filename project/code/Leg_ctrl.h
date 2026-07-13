@@ -39,6 +39,7 @@ typedef struct
     float reference_z_m[LEG_SIDE_COUNT];
     float requested_x_offset_m;
     float requested_z_offset_m;
+    float requested_z_differential_m;
     float commanded_x_m[LEG_SIDE_COUNT];
     float commanded_z_m[LEG_SIDE_COUNT];
     five_bar_solution_t joint[LEG_SIDE_COUNT];
@@ -53,6 +54,9 @@ leg_ctrl_status_t leg_ctrl_set_servo_calibration(
     const leg_servo_calibration_t *calibration);
 leg_ctrl_status_t leg_ctrl_set_target_offset(float x_offset_m,
                                              float z_offset_m);
+// Positive differential extends the left leg (+z) and retracts the right leg.
+leg_ctrl_status_t leg_ctrl_set_differential_z_offset(
+    float differential_z_offset_m);
 leg_ctrl_status_t leg_ctrl_update(float roll_rad,
                                   float roll_rate_rad_s);
 // Applies a scripted target in one update, bypassing the normal slew limit.

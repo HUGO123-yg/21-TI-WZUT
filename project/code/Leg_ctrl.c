@@ -239,6 +239,7 @@ leg_ctrl_status_t leg_ctrl_init(void)
     }
     leg_state.requested_x_offset_m = LEG_DEFAULT_X_OFFSET_M;
     leg_state.requested_z_offset_m = LEG_DEFAULT_Z_OFFSET_M;
+    leg_state.requested_z_differential_m = 0.0f;
 
     if (!LEG_CONTROL_ENABLE)
     {
@@ -310,14 +311,35 @@ leg_ctrl_status_t leg_ctrl_set_target_offset(float x_offset_m,
     if (!leg_float_is_finite(x_offset_m)
         || !leg_float_is_finite(z_offset_m)
         || (leg_state.reference_z_m[LEG_SIDE_LEFT] + z_offset_m
+            + leg_state.requested_z_differential_m
             > LEG_MAX_ABSOLUTE_Z_M)
         || (leg_state.reference_z_m[LEG_SIDE_RIGHT] + z_offset_m
+            - leg_state.requested_z_differential_m
             > LEG_MAX_ABSOLUTE_Z_M))
     {
         return LEG_CTRL_STATUS_INVALID_ARGUMENT;
     }
     leg_state.requested_x_offset_m = x_offset_m;
     leg_state.requested_z_offset_m = z_offset_m;
+    return LEG_CTRL_STATUS_OK;
+}
+
+leg_ctrl_status_t leg_ctrl_set_differential_z_offset(
+    float differential_z_offset_m)
+{
+    if (!leg_float_is_finite(differential_z_offset_m)
+        || (fabsf(differential_z_offset_m)
+            > LEG_MAX_DIFFERENTIAL_Z_OFFSET_M)
+        || (leg_state.reference_z_m[LEG_SIDE_LEFT]
+            + leg_state.requested_z_offset_m
+            + differential_z_offset_m > LEG_MAX_ABSOLUTE_Z_M)
+        || (leg_state.reference_z_m[LEG_SIDE_RIGHT]
+            + leg_state.requested_z_offset_m
+            - differential_z_offset_m > LEG_MAX_ABSOLUTE_Z_M))
+    {
+        return LEG_CTRL_STATUS_INVALID_ARGUMENT;
+    }
+    leg_state.requested_z_differential_m = differential_z_offset_m;
     return LEG_CTRL_STATUS_OK;
 }
 
@@ -347,9 +369,11 @@ static leg_ctrl_status_t leg_ctrl_update_internal(float roll_rad,
                             LEG_MAX_ROLL_OFFSET_M);
     target_z[LEG_SIDE_LEFT] = leg_state.reference_z_m[LEG_SIDE_LEFT]
                               + leg_state.requested_z_offset_m
+                              + leg_state.requested_z_differential_m
                               + roll_offset;
     target_z[LEG_SIDE_RIGHT] = leg_state.reference_z_m[LEG_SIDE_RIGHT]
                                + leg_state.requested_z_offset_m
+                               - leg_state.requested_z_differential_m
                                - roll_offset;
     target_z[LEG_SIDE_LEFT] = leg_clamp(target_z[LEG_SIDE_LEFT],
                                         -FLT_MAX,
@@ -432,6 +456,11 @@ leg_ctrl_status_t leg_ctrl_move_to_offset_immediate(float x_offset_m,
 {
     leg_ctrl_status_t status;
 
+    status = leg_ctrl_set_differential_z_offset(0.0f);
+    if (LEG_CTRL_STATUS_OK != status)
+    {
+        return status;
+    }
     status = leg_ctrl_set_target_offset(x_offset_m, z_offset_m);
     if (LEG_CTRL_STATUS_OK != status)
     {

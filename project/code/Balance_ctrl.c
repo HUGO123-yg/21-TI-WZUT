@@ -42,6 +42,7 @@ static void balance_reset_controllers(void)
     balance_state.yaw_command = 0.0f;
     balance_state.left_wheel_command = 0;
     balance_state.right_wheel_command = 0;
+    balance_state.leg_speed_control_active = 0U;
     balance_state.position_reference_m = balance_state.measured_position_m;
 }
 
@@ -216,12 +217,23 @@ void balance_ctrl_update(const imu_data_t *imu,
 
 #if BALANCE_USE_STATE_FEEDBACK
     (void)run_speed_loop;
-    balance_state.position_reference_m += balance_target.target_speed_m_s
-                                          * CONTROL_FAST_PERIOD_S;
-    pendulum_error.position_m = balance_state.measured_position_m
-                                - balance_state.position_reference_m;
-    pendulum_error.speed_m_s = balance_state.measured_speed_m_s
-                               - balance_target.target_speed_m_s;
+    balance_state.leg_speed_control_active
+        = balance_target.use_leg_speed_control;
+    if (balance_target.use_leg_speed_control)
+    {
+        balance_state.position_reference_m = balance_state.measured_position_m;
+        pendulum_error.position_m = 0.0f;
+        pendulum_error.speed_m_s = 0.0f;
+    }
+    else
+    {
+        balance_state.position_reference_m += balance_target.target_speed_m_s
+                                              * CONTROL_FAST_PERIOD_S;
+        pendulum_error.position_m = balance_state.measured_position_m
+                                    - balance_state.position_reference_m;
+        pendulum_error.speed_m_s = balance_state.measured_speed_m_s
+                                   - balance_target.target_speed_m_s;
+    }
     pendulum_error.pitch_rad = pitch_rad - BALANCE_PITCH_ZERO_RAD;
     pendulum_error.pitch_rate_rad_s = pitch_rate_rad_s;
     balance_state.balance_command = BALANCE_WHEEL_OUTPUT_DIRECTION
@@ -230,7 +242,17 @@ void balance_ctrl_update(const imu_data_t *imu,
     balance_state.pitch_rate_reference_rad_s = 0.0f;
 #else
 
-    if (run_speed_loop)
+    balance_state.leg_speed_control_active
+        = balance_target.use_leg_speed_control;
+    if (balance_target.use_leg_speed_control)
+    {
+        // The terrain controller owns the speed loop and moves the common leg
+        // x target. Resetting here prevents the old speed integral from being
+        // injected into pitch when normal control resumes.
+        pid_reset(&speed_pid);
+        balance_state.pitch_reference_rad = BALANCE_PITCH_ZERO_RAD;
+    }
+    else if (run_speed_loop)
     {
         speed_error = balance_target.target_speed_m_s
                       - balance_state.measured_speed_m_s;
