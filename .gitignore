@@ -1,0 +1,14 @@
+# IAR build outputs and browse databases
+project/iar/Debug*/
+project/iar/project_config/Debug*/
+
+# IAR machine-local settings
+project/iar/settings/
+project/iar/project_config/settings/
+
+# IAR generated session and debugger files
+*.crun
+*.dbgdt
+*.ps1
+*.xcl
+*.reggroups

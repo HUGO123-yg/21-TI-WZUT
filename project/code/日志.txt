@@ -1,0 +1,43 @@
+
+在轮腿里,并不是传统的三串级结构，角速度环-角度环-速度环
+
+
+而是用速度环直接去控制腿部
+
+
+
+基于当前车头正反向,利用封装好的程序左右都向前1000占空比，速度回传值左+右-
+
+
+
+//    static uint32 system_time=0;
+//    
+//    system_time++;
+//  
+////    imu963ra_get_acc();
+////    imu963ra_get_gyro();
+//    
+//    imu660ra_get_acc();
+//    imu660ra_get_gyro();   
+//    
+//    quaternion_module_calculate(&roll_balance_cascade);
+//    
+//    if(system_time>500)
+//    {
+//      if(system_time%5==0)
+//      {
+//          pid_control(&roll_balance_cascade.angle_cycle,0-roll_balance_cascade.posture_value.mechanical_zero,roll_balance_cascade.posture_value.rol);
+//      }
+//      
+//       pid_control(&roll_balance_cascade.angular_speed_cycle,roll_balance_cascade.angle_cycle.out,imu660ra_gyro_x);
+//
+//      
+//      CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out);
+//    }
+//    
+
+
+
+陀螺仪顺时针是负的，逆时针是正的
+IMU-规划[-180,180]
+编码器规划[CM]
