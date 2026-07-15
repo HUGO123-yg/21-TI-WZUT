@@ -184,6 +184,205 @@ static void control_system_sync_rotation_state(void)
     control_state.rotation_active = rotation_ctrl_is_active();
 }
 
+static uint8 control_system_route_status_is_error(
+    route_plan_status_t status)
+{
+    return (uint8)((ROUTE_PLAN_STATUS_INVALID_ARGUMENT == status)
+                   || (ROUTE_PLAN_STATUS_INVALID_CONFIG == status)
+                   || (ROUTE_PLAN_STATUS_ACTION_REJECTED == status)
+                   || (ROUTE_PLAN_STATUS_ACTION_FAILED == status));
+}
+
+static void control_system_sync_route_state(void)
+{
+    const route_plan_state_t *route;
+    uint32 status;
+
+    route = route_plan_get_state();
+    status = (uint32)route->status;
+    if (control_system_route_status_is_error(route->status)
+        && (control_state.last_route_status != status))
+    {
+        control_state.route_error_count++;
+    }
+    control_state.last_route_status = status;
+    control_state.route_active = route->active;
+    control_state.route_action_pending = route->action_pending;
+    control_state.route_action_running = route->action_running;
+}
+
+static void control_system_service_route_action(void)
+{
+    const route_plan_state_t *route;
+    const rotation_ctrl_state_t *rotation;
+    const jump_state_t *jump;
+    uint8 completed;
+    uint8 success;
+
+    route = route_plan_get_state();
+    if (!route->action_running)
+    {
+        return;
+    }
+
+    completed = 0U;
+    success = 0U;
+    switch (route->current_action)
+    {
+        case ROUTE_ACTION_JUMP:
+            jump = jump_ctrl_get_state();
+            if (!jump->active)
+            {
+                completed = 1U;
+                success = (uint8)(JUMP_RESULT_COMPLETED == jump->result);
+            }
+            break;
+
+        case ROUTE_ACTION_ROTATE_CW:
+        case ROUTE_ACTION_ROTATE_CCW:
+            rotation = rotation_ctrl_get_state();
+            if (ROTATION_RESULT_COMPLETED == rotation->result)
+            {
+                completed = 1U;
+                success = control_system_release_rotation();
+            }
+            else if ((ROTATION_RESULT_TIMEOUT == rotation->result)
+                     || (ROTATION_RESULT_FAULT == rotation->result)
+                     || (ROTATION_RESULT_ABORTED == rotation->result))
+            {
+                completed = 1U;
+                (void)control_system_abort_rotation();
+            }
+            break;
+
+        case ROUTE_ACTION_BRIDGE_LEFT:
+        case ROUTE_ACTION_BRIDGE_RIGHT:
+            if (((uint32)BRIDGE_CTRL_STATUS_OK
+                 != control_state.last_bridge_status)
+                && ((uint32)BRIDGE_CTRL_STATUS_DISABLED
+                    != control_state.last_bridge_status))
+            {
+                completed = 1U;
+            }
+            else if (!bridge_ctrl_is_active()
+                     && (BRIDGE_PHASE_IDLE
+                         == bridge_ctrl_get_state()->phase))
+            {
+                completed = 1U;
+                success = control_system_set_bridge_enabled(0U);
+            }
+            break;
+
+        case ROUTE_ACTION_BUMPY:
+            if (((uint32)BUMPY_CTRL_STATUS_OK
+                 != control_state.last_bumpy_status)
+                && ((uint32)BUMPY_CTRL_STATUS_DISABLED
+                    != control_state.last_bumpy_status))
+            {
+                completed = 1U;
+            }
+            else if (!bumpy_ctrl_is_monitoring()
+                     && (BUMPY_PHASE_IDLE == bumpy_ctrl_get_state()->phase))
+            {
+                completed = 1U;
+                success = control_system_set_bumpy_enabled(0U);
+            }
+            break;
+
+        case ROUTE_ACTION_NONE:
+        case ROUTE_ACTION_STOP:
+        default:
+            completed = 1U;
+            break;
+    }
+
+    if (completed)
+    {
+        route_plan_action_completed(success);
+        control_system_sync_route_state();
+    }
+}
+
+static void control_system_dispatch_route_action(void)
+{
+    route_action_t action;
+    rotation_dir_t direction;
+    float parameter;
+    uint8 accepted;
+
+    if (!route_plan_get_pending_action(&action, &parameter))
+    {
+        return;
+    }
+    if ((CONTROL_STATUS_OK != control_state.status)
+        || !control_state.balance_enabled
+        || wheel_driver_is_stop_locked()
+        || jump_ctrl_is_active()
+        || rotation_ctrl_is_active()
+        || bridge_ctrl_is_active()
+        || bumpy_ctrl_is_monitoring())
+    {
+        return;
+    }
+
+    accepted = 0U;
+    switch (action)
+    {
+        case ROUTE_ACTION_JUMP:
+            accepted = control_system_start_jump();
+            break;
+
+        case ROUTE_ACTION_ROTATE_CW:
+        case ROUTE_ACTION_ROTATE_CCW:
+            direction = (ROUTE_ACTION_ROTATE_CW == action)
+                ? ROTATION_DIR_CW
+                : ROTATION_DIR_CCW;
+            accepted = control_system_start_rotation(direction, parameter);
+            break;
+
+        case ROUTE_ACTION_BRIDGE_LEFT:
+        case ROUTE_ACTION_BRIDGE_RIGHT:
+            accepted = control_system_set_bridge_enabled(1U);
+            if (accepted)
+            {
+                accepted = control_system_start_bridge(
+                    (ROUTE_ACTION_BRIDGE_LEFT == action) ? 1 : -1);
+            }
+            if (!accepted)
+            {
+                (void)control_system_set_bridge_enabled(0U);
+            }
+            break;
+
+        case ROUTE_ACTION_BUMPY:
+            accepted = control_system_set_bumpy_enabled(1U);
+            if (accepted)
+            {
+                accepted = control_system_start_bumpy();
+            }
+            if (!accepted)
+            {
+                (void)control_system_set_bumpy_enabled(0U);
+            }
+            break;
+
+        case ROUTE_ACTION_NONE:
+        case ROUTE_ACTION_STOP:
+        default:
+            break;
+    }
+
+    if (accepted)
+    {
+        route_plan_action_started();
+    }
+    else
+    {
+        route_plan_action_rejected();
+    }
+    control_system_sync_route_state();
+}
+
 static void control_system_cancel_active_actions(void)
 {
     jump_ctrl_emergency_stop();
@@ -208,13 +407,15 @@ static void control_system_stop_navigation_action(void)
     navigation = navigation_get_state();
     if (NAVIGATION_MODE_RECORDING == navigation->mode)
     {
-        (void)navigation_stop_recording();
+        (void)navigation_abort_recording();
     }
     else if ((NAVIGATION_MODE_REPLAYING == navigation->mode)
              || (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode))
     {
         navigation_stop_replay();
     }
+    route_plan_abort();
+    control_system_sync_route_state();
 }
 
 static void control_system_latch_fault(control_status_t status,
@@ -229,6 +430,7 @@ static void control_system_latch_fault(control_status_t status,
     restore_balance_after_jump = 0U;
     (void)balance_ctrl_set_enabled(0U);
     control_system_cancel_active_actions();
+    control_system_stop_navigation_action();
     control_system_set_zero_command();
     wheel_driver_stop();
 
@@ -295,6 +497,7 @@ control_status_t control_system_init(void)
     bridge_ctrl_status_t bridge_status;
     bumpy_ctrl_status_t bumpy_status;
     rotation_ctrl_status_t rotation_status;
+    route_plan_status_t route_status;
     uint8 leg_init_failed;
 
     memset(&control_state, 0, sizeof(control_state));
@@ -339,6 +542,9 @@ control_status_t control_system_init(void)
     }
     jump_ctrl_init();
     control_state.last_jump_result = (uint32)JUMP_RESULT_IDLE;
+    route_status = route_plan_init();
+    control_state.last_route_status = (uint32)route_status;
+    control_system_sync_route_state();
 
     imu_status = imu_init();
     control_state.last_imu_status = (uint32)imu_status;
@@ -403,6 +609,7 @@ void control_system_tick_1ms(void)
     const balance_state_t *balance;
     const balance_command_t *command;
     const navigation_state_t *navigation;
+    const route_plan_state_t *route;
     const bridge_ctrl_state_t *bridge;
     control_drive_command_t drive_command;
     balance_command_t active_command;
@@ -412,6 +619,7 @@ void control_system_tick_1ms(void)
     imu_status_t imu_status;
     leg_ctrl_status_t leg_status;
     navigation_status_t navigation_status;
+    route_plan_status_t route_status;
     bridge_ctrl_status_t bridge_status;
     bumpy_ctrl_status_t bumpy_status;
     uint8 run_speed_loop;
@@ -504,6 +712,31 @@ void control_system_tick_1ms(void)
         control_state.navigation_error_count++;
     }
 
+    navigation = navigation_get_state();
+    control_system_service_route_action();
+    route = route_plan_get_state();
+    if (route->active
+        && ((NAVIGATION_MODE_REPLAYING == navigation->mode)
+            || (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode)))
+    {
+        route_status = route_plan_update(navigation->route_distance_m);
+        if ((ROUTE_PLAN_STATUS_OK != route_status)
+            && (ROUTE_PLAN_STATUS_COMPLETE != route_status))
+        {
+            control_system_sync_route_state();
+        }
+    }
+    route = route_plan_get_state();
+    if ((NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode)
+        && route->active
+        && !route->action_pending
+        && !route->action_running)
+    {
+        route_plan_finish();
+    }
+    control_system_dispatch_route_action();
+    control_system_sync_route_state();
+
     if (wheel_driver_is_stop_locked())
     {
         if (control_state.jump_active && !jump_ctrl_is_active())
@@ -518,8 +751,28 @@ void control_system_tick_1ms(void)
     control_system_make_balance_command(&drive_command, &active_command);
     control_state.applied_drive_command_sequence = drive_command_sequence;
     navigation = navigation_get_state();
-    if (NAVIGATION_ROUTE_CONTROL_ENABLE
-        && (NAVIGATION_MODE_REPLAYING == navigation->mode))
+    route = route_plan_get_state();
+    if (((NAVIGATION_MODE_REPLAYING == navigation->mode)
+         || (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode))
+        && (ROUTE_PLAN_STATUS_COMPLETE == route->status
+            || control_system_route_status_is_error(route->status)))
+    {
+        active_command.target_speed_m_s = 0.0f;
+        active_command.target_yaw_rate_rad_s = 0.0f;
+    }
+    else if (ROUTE_PLAN_APPLY_SPEED_ENABLE
+             && route->active
+             && (NAVIGATION_MODE_REPLAYING == navigation->mode))
+    {
+        active_command.target_speed_m_s = route->command_speed_m_s;
+        if (NAVIGATION_ROUTE_CONTROL_ENABLE)
+        {
+            active_command.target_yaw_rate_rad_s
+                = navigation->target_yaw_rate_rad_s;
+        }
+    }
+    else if (NAVIGATION_ROUTE_CONTROL_ENABLE
+             && (NAVIGATION_MODE_REPLAYING == navigation->mode))
     {
         active_command.target_yaw_rate_rad_s
             = navigation->target_yaw_rate_rad_s;
@@ -1074,6 +1327,100 @@ uint8 control_system_release_rotation(void)
 const rotation_ctrl_state_t *control_system_get_rotation_state(void)
 {
     return rotation_ctrl_get_state();
+}
+
+uint8 control_system_start_route(uint8 route_id)
+{
+    const navigation_state_t *navigation;
+    navigation_status_t navigation_status;
+    route_plan_status_t route_status;
+    uint32 interrupt_state;
+
+    navigation = navigation_get_state();
+    if ((CONTROL_STATUS_OK != control_state.status)
+        || (CONTROL_FAULT_NONE != control_state.fault_flags)
+        || wheel_driver_is_stop_locked()
+        || jump_ctrl_is_active()
+        || rotation_ctrl_is_active()
+        || bridge_ctrl_is_active()
+        || bumpy_ctrl_is_monitoring()
+        || (NAVIGATION_MODE_IDLE != navigation->mode))
+    {
+        return 0U;
+    }
+
+    navigation_status = navigation_start_replay(route_id);
+    control_state.last_navigation_status = (uint32)navigation_status;
+    if (NAVIGATION_STATUS_OK != navigation_status)
+    {
+        control_state.navigation_error_count++;
+        return 0U;
+    }
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    route_status = route_plan_start(route_id);
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+    control_system_sync_route_state();
+    if ((ROUTE_PLAN_STATUS_OK != route_status)
+        && (ROUTE_PLAN_STATUS_DISABLED != route_status))
+    {
+        navigation_stop_replay();
+        control_system_set_zero_command();
+        return 0U;
+    }
+
+    control_system_set_zero_command();
+    return 1U;
+}
+
+void control_system_stop_route(void)
+{
+    const route_plan_state_t *route;
+    uint32 interrupt_state;
+
+    route = route_plan_get_state();
+    if (route->action_running)
+    {
+        switch (route->current_action)
+        {
+            case ROUTE_ACTION_JUMP:
+                (void)control_system_abort_jump();
+                break;
+
+            case ROUTE_ACTION_ROTATE_CW:
+            case ROUTE_ACTION_ROTATE_CCW:
+                (void)control_system_abort_rotation();
+                break;
+
+            case ROUTE_ACTION_BRIDGE_LEFT:
+            case ROUTE_ACTION_BRIDGE_RIGHT:
+                (void)control_system_abort_bridge();
+                (void)control_system_set_bridge_enabled(0U);
+                break;
+
+            case ROUTE_ACTION_BUMPY:
+                (void)control_system_abort_bumpy();
+                (void)control_system_set_bumpy_enabled(0U);
+                break;
+
+            case ROUTE_ACTION_NONE:
+            case ROUTE_ACTION_STOP:
+            default:
+                break;
+        }
+    }
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    route_plan_abort();
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+    navigation_stop_replay();
+    control_system_set_zero_command();
+    control_system_sync_route_state();
+}
+
+const route_plan_state_t *control_system_get_route_state(void)
+{
+    return route_plan_get_state();
 }
 
 uint8 control_system_set_bridge_enabled(uint8 enabled)

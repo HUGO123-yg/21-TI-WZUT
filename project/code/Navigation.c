@@ -384,6 +384,30 @@ navigation_status_t navigation_stop_recording(void)
     return NAVIGATION_STATUS_OK;
 }
 
+navigation_status_t navigation_abort_recording(void)
+{
+    if (!navigation_initialized)
+    {
+        return NAVIGATION_STATUS_NOT_INITIALIZED;
+    }
+    if (NAVIGATION_MODE_RECORDING != navigation_state.mode)
+    {
+        return NAVIGATION_STATUS_INVALID_ARGUMENT;
+    }
+    if (NAV_FLASH_STATUS_OK != nav_flash_record_abort())
+    {
+        return navigation_storage_error();
+    }
+
+    navigation_state.mode = NAVIGATION_MODE_IDLE;
+    navigation_state.route_id = 0U;
+    navigation_state.route_distance_m = 0.0f;
+    navigation_state.route_sample_count = 0U;
+    navigation_state.target_yaw_rate_rad_s = 0.0f;
+    navigation_state.status = NAVIGATION_STATUS_OK;
+    return NAVIGATION_STATUS_OK;
+}
+
 navigation_status_t navigation_start_replay(uint8 route_id)
 {
     if (!navigation_initialized)

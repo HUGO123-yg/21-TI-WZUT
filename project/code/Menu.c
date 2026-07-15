@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "Control_system.h"
+#include "Flash.h"
 #include "Navigation.h"
 #include "config.h"
 #include "zf_device_ips200.h"
@@ -86,19 +87,19 @@ static void menu_set_zero_command(void)
     (void)control_system_submit_drive_command(&command);
 }
 
-static void menu_stop_navigation(void)
+static void menu_abort_navigation(void)
 {
     const navigation_state_t *navigation;
 
     navigation = navigation_get_state();
     if (NAVIGATION_MODE_RECORDING == navigation->mode)
     {
-        (void)navigation_stop_recording();
+        (void)navigation_abort_recording();
     }
     else if ((NAVIGATION_MODE_REPLAYING == navigation->mode)
              || (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode))
     {
-        navigation_stop_replay();
+        control_system_stop_route();
     }
 }
 
@@ -111,7 +112,7 @@ static void menu_abort_module_actions(void)
     (void)control_system_abort_rotation();
     (void)control_system_set_bridge_enabled(0U);
     (void)control_system_set_bumpy_enabled(0U);
-    menu_stop_navigation();
+    menu_abort_navigation();
     menu_set_zero_command();
     menu_state.active_action = MENU_ACTION_NONE;
 }
@@ -121,7 +122,7 @@ static void menu_emergency_stop(void)
     // Do not use the normal jump-abort path here: abort commands a leg recovery
     // move, while emergency stop must freeze scripted motion immediately.
     control_system_emergency_stop();
-    menu_stop_navigation();
+    menu_abort_navigation();
     menu_state.active_action = MENU_ACTION_NONE;
     menu_state.hard_stopped = 1U;
 }
@@ -145,7 +146,7 @@ static uint8 menu_request_stand(uint8 clear_faults)
 
 static uint8 menu_start_recording(uint8 route_id)
 {
-    menu_stop_navigation();
+    menu_abort_navigation();
     return (uint8)(NAVIGATION_STATUS_OK
                    == navigation_start_recording(route_id));
 }
@@ -156,9 +157,8 @@ static uint8 menu_start_replay(uint8 route_id)
     {
         return 0U;
     }
-    menu_stop_navigation();
-    return (uint8)(NAVIGATION_STATUS_OK
-                   == navigation_start_replay(route_id));
+    menu_abort_navigation();
+    return control_system_start_route(route_id);
 }
 
 uint8 menu_execute_action(menu_action_t action)
@@ -302,9 +302,11 @@ static void menu_update_action_state(void)
     const rotation_ctrl_state_t *rotation;
     const jump_state_t *jump;
     const navigation_state_t *navigation;
+    const route_plan_state_t *route;
 
     control = control_system_get_state();
     navigation = navigation_get_state();
+    route = control_system_get_route_state();
     if ((MENU_ACTION_DEV_STAND == menu_state.active_action)
         || (MENU_ACTION_TEST_STAND == menu_state.active_action)
         || (MENU_ACTION_TEST_STOP_REPLAY == menu_state.active_action))
@@ -320,12 +322,26 @@ static void menu_update_action_state(void)
             menu_state.last_result = MENU_ACTION_RESULT_REJECTED;
         }
     }
-    else if ((MENU_ACTION_DEV_STOP == menu_state.active_action)
-             || (MENU_ACTION_TEST_STOP_RECORDING
-                 == menu_state.active_action))
+    else if (MENU_ACTION_DEV_STOP == menu_state.active_action)
     {
         menu_state.active_action = MENU_ACTION_NONE;
         menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;
+    }
+    else if (MENU_ACTION_TEST_STOP_RECORDING == menu_state.active_action)
+    {
+        nav_flash_state_t flash_state = nav_flash_get_state();
+
+        if (NAV_FLASH_STATE_COMMIT_COMPLETE == flash_state)
+        {
+            menu_state.active_action = MENU_ACTION_NONE;
+            menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;
+        }
+        else if ((NAV_FLASH_STATE_ERROR == flash_state)
+                 || (NAV_FLASH_STATE_ABORTED == flash_state))
+        {
+            menu_state.active_action = MENU_ACTION_NONE;
+            menu_state.last_result = MENU_ACTION_RESULT_REJECTED;
+        }
     }
     else if ((MENU_ACTION_TEST_RECORD_ROUTE_1 == menu_state.active_action)
              || (MENU_ACTION_TEST_RECORD_ROUTE_2
@@ -398,15 +414,21 @@ static void menu_update_action_state(void)
              || (MENU_ACTION_TEST_REPLAY_ROUTE_2 == menu_state.active_action)
              || (MENU_ACTION_TEST_REPLAY_ROUTE_3 == menu_state.active_action))
     {
-        if (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode)
+        if ((NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode)
+            || (ROUTE_PLAN_STATUS_COMPLETE == route->status))
         {
-            navigation_stop_replay();
+            control_system_stop_route();
             (void)control_system_request_stand();
             menu_state.active_action = MENU_ACTION_NONE;
             menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;
         }
-        else if (NAVIGATION_MODE_ERROR == navigation->mode)
+        else if ((NAVIGATION_MODE_ERROR == navigation->mode)
+                 || (ROUTE_PLAN_STATUS_INVALID_ARGUMENT == route->status)
+                 || (ROUTE_PLAN_STATUS_INVALID_CONFIG == route->status)
+                 || (ROUTE_PLAN_STATUS_ACTION_REJECTED == route->status)
+                 || (ROUTE_PLAN_STATUS_ACTION_FAILED == route->status))
         {
+            control_system_stop_route();
             menu_state.active_action = MENU_ACTION_NONE;
             menu_state.last_result = MENU_ACTION_RESULT_REJECTED;
         }
@@ -455,12 +477,14 @@ static void menu_draw(void)
 {
 #if MENU_DISPLAY_ENABLE
     const control_system_state_t *control;
+    const route_plan_state_t *route;
     const menu_item_t *items;
     uint8 count;
     uint8 index;
     uint16 y;
 
     control = control_system_get_state();
+    route = control_system_get_route_state();
     if (menu_drawn_page != menu_state.page)
     {
         ips200_clear();
@@ -492,6 +516,16 @@ static void menu_draw(void)
             ips200_show_string(16U, y, items[index].label);
         }
     }
+    ips200_show_string(0U, 272U, "RM:");
+    ips200_show_float(24U, 272U, route->route_distance_m, 3U, 2U);
+    ips200_show_string(104U, 272U, "RS:");
+    ips200_show_float(128U, 272U, route->command_speed_m_s, 1U, 2U);
+    ips200_show_string(0U, 288U, "RID:");
+    ips200_show_uint(32U, 288U, route->route_id, 1U);
+    ips200_show_string(56U, 288U, "P:");
+    ips200_show_uint(72U, 288U, route->current_point_index, 3U);
+    ips200_show_string(120U, 288U, "A:");
+    ips200_show_uint(136U, 288U, route->current_action, 2U);
     ips200_show_string(0U, 304U, "K1^ K2v K3OK K4BACK/HOLD=STOP");
 #endif
 }

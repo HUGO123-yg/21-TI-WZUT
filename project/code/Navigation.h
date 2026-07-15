@@ -62,6 +62,7 @@ navigation_status_t navigation_update(const imu_data_t *imu,
 // Route start/load functions must be called from the main context, not an ISR.
 navigation_status_t navigation_start_recording(uint8 route_id);
 navigation_status_t navigation_stop_recording(void);
+navigation_status_t navigation_abort_recording(void);
 navigation_status_t navigation_start_replay(uint8 route_id);
 void navigation_stop_replay(void);
 

@@ -1209,6 +1209,12 @@
             <name>$PROJ_DIR$\..\..\code\Rotation_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Route_plan.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Route_plan.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Terrain_vision.c</name>
         </file>
         <file>

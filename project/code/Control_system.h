@@ -6,6 +6,7 @@
 #include "Bumpy_ctrl.h"
 #include "Jump.h"
 #include "Leg_ctrl.h"
+#include "Route_plan.h"
 #include "Rotation_ctrl.h"
 #include "zf_common_typedef.h"
 
@@ -70,6 +71,7 @@ typedef struct
     uint32 bridge_error_count;
     uint32 bumpy_error_count;
     uint32 rotation_error_count;
+    uint32 route_error_count;
     uint32 emergency_stop_count;
     uint32 recovery_attempt_count;
     uint32 recovery_failure_count;
@@ -81,6 +83,7 @@ typedef struct
     uint32 last_bumpy_status;
     uint32 last_rotation_status;
     uint32 last_rotation_result;
+    uint32 last_route_status;
     uint8 balance_config_valid;
     uint8 wheel_config_valid;
     uint8 wheel_feedback_ready;
@@ -88,6 +91,9 @@ typedef struct
     uint8 bridge_active;
     uint8 bumpy_active;
     uint8 rotation_active;
+    uint8 route_active;
+    uint8 route_action_pending;
+    uint8 route_action_running;
     uint8 stand_request_pending;
     uint8 balance_enabled;
     control_startup_state_t startup_state;
@@ -118,6 +124,9 @@ uint8 control_system_start_rotation(rotation_dir_t direction, float turns);
 uint8 control_system_abort_rotation(void);
 uint8 control_system_release_rotation(void);
 const rotation_ctrl_state_t *control_system_get_rotation_state(void);
+uint8 control_system_start_route(uint8 route_id);
+void control_system_stop_route(void);
+const route_plan_state_t *control_system_get_route_state(void);
 uint8 control_system_set_bridge_enabled(uint8 enabled);
 uint8 control_system_start_bridge(int8 roll_sign);
 uint8 control_system_abort_bridge(void);

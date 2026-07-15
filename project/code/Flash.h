@@ -25,6 +25,9 @@ typedef enum
     NAV_FLASH_STATE_IDLE,
     NAV_FLASH_STATE_RECORDING,
     NAV_FLASH_STATE_FLUSH_PENDING,
+    NAV_FLASH_STATE_ABORT_PENDING,
+    NAV_FLASH_STATE_COMMIT_COMPLETE,
+    NAV_FLASH_STATE_ABORTED,
     NAV_FLASH_STATE_LOADING,
     NAV_FLASH_STATE_REPLAY_READY,
     NAV_FLASH_STATE_ERROR
@@ -54,8 +57,14 @@ nav_flash_status_t nav_flash_record_sample(float yaw_deg,
                                             float distance_delta_m);
 
 // Request final-page and metadata commit. Completion is asynchronous; call
-// nav_flash_service() from the main loop until the state becomes IDLE.
+// nav_flash_service() from the main loop until COMMIT_COMPLETE or ERROR.
 nav_flash_status_t nav_flash_record_stop(void);
+
+// Cancel the current uncommitted recording. If data pages have already been
+// written over an older route, service() asynchronously invalidates that old
+// route before reporting ABORTED so metadata never references partial data.
+// This function performs no Flash I/O and is safe to call outside main context.
+nav_flash_status_t nav_flash_record_abort(void);
 
 // Execute at most one pending page write and any resulting metadata commit.
 // This function uses blocking driver calls and must never run in an ISR.

@@ -132,6 +132,57 @@
 #define NAVIGATION_HEADING_KP                    (2.0f)
 #define NAVIGATION_MAX_YAW_RATE_RAD_S            (1.5f)
 
+// 路线表只发布速度和动作意图，Control_system 仍是唯一执行仲裁者。
+// route_distance_m 从每次路径回放起点清零，因此动作点不会受总里程漂移
+// 影响。速度接管在航向回放完成实车标定前保持关闭；调度状态和动作点
+// 仍会运行，便于先核对里程。
+#define ROUTE_PLAN_ENABLE                        (1U)
+#define ROUTE_PLAN_APPLY_SPEED_ENABLE            (0U)
+#define ROUTE_PLAN_MAX_POINT_COUNT               (16U)
+#define ROUTE_PLAN_MAX_SPEED_M_S                  (0.60f)
+#define ROUTE_PLAN_SPEED_SLEW_M_S2                (0.40f)
+#define ROUTE_PLAN_TRIGGER_EPSILON_M              (0.002f)
+#define ROUTE_PLAN_DISTANCE_BACKTRACK_TOLERANCE_M (0.005f)
+#define ROUTE_PLAN_ACTION_RETRY_LIMIT             (100U) // 200 Hz 下 500 ms
+
+// 路线 1/2 先给出保守的速度分段。路线 3 展示完整的速度点和动作点
+// 表结构；未拿到实测动作里程前，动作类型统一为 NONE。确认赛道里程后，
+// 将对应 ROUTE_PLAN_ROUTE_3_ACTION_* 改成 ROUTE_ACTION_BRIDGE_LEFT/RIGHT、
+// ROUTE_ACTION_BUMPY、ROUTE_ACTION_JUMP 或 ROUTE_ACTION_ROTATE_CW/CCW。
+// 旋转动作的 parameter 表示圈数，其它动作填 0。
+#define ROUTE_PLAN_ROUTE_1_POINTS \
+    { 0.00f, 0.16f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 0.80f, 0.22f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 1.80f, 0.18f, ROUTE_ACTION_NONE, 0.0f }
+
+#define ROUTE_PLAN_ROUTE_2_POINTS \
+    { 0.00f, 0.16f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 1.20f, 0.24f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 2.80f, 0.18f, ROUTE_ACTION_NONE, 0.0f }
+
+#define ROUTE_PLAN_ROUTE_3_ACTION_1              ROUTE_ACTION_NONE
+#define ROUTE_PLAN_ROUTE_3_ACTION_1_PARAMETER    (0.0f)
+#define ROUTE_PLAN_ROUTE_3_ACTION_2              ROUTE_ACTION_NONE
+#define ROUTE_PLAN_ROUTE_3_ACTION_2_PARAMETER    (0.0f)
+#define ROUTE_PLAN_ROUTE_3_ACTION_3              ROUTE_ACTION_NONE
+#define ROUTE_PLAN_ROUTE_3_ACTION_3_PARAMETER    (0.0f)
+#define ROUTE_PLAN_ROUTE_3_ACTION_4              ROUTE_ACTION_NONE
+#define ROUTE_PLAN_ROUTE_3_ACTION_4_PARAMETER    (0.5f)
+
+#define ROUTE_PLAN_ROUTE_3_POINTS \
+    { 0.00f, 0.14f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 1.00f, 0.18f, ROUTE_PLAN_ROUTE_3_ACTION_1, \
+      ROUTE_PLAN_ROUTE_3_ACTION_1_PARAMETER }, \
+    { 1.50f, 0.22f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 2.40f, 0.18f, ROUTE_PLAN_ROUTE_3_ACTION_2, \
+      ROUTE_PLAN_ROUTE_3_ACTION_2_PARAMETER }, \
+    { 3.60f, 0.22f, ROUTE_ACTION_NONE, 0.0f }, \
+    { 4.50f, 0.16f, ROUTE_PLAN_ROUTE_3_ACTION_3, \
+      ROUTE_PLAN_ROUTE_3_ACTION_3_PARAMETER }, \
+    { 5.20f, 0.14f, ROUTE_PLAN_ROUTE_3_ACTION_4, \
+      ROUTE_PLAN_ROUTE_3_ACTION_4_PARAMETER }, \
+    { 6.00f, 0.20f, ROUTE_ACTION_NONE, 0.0f }
+
 // 无头 MT9V03X 地形识别。检测器内部保持一个道路
 // 区域仅用于排除背景像素；它不发布转向线
 // 也不绘制到 LCD。识别结果仅作观测用途，在

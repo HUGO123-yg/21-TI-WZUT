@@ -84,11 +84,37 @@ static uint8 record_route_id;
 static uint8 finish_requested;
 static uint16 active_sample_count;
 static uint16 next_page_sequence;
+static uint16 written_page_count;
 static uint32 record_sample_count;
 static uint32 record_generation;
 static float record_distance;
 static uint8 replay_route_id;
 static uint32 replay_sample_count;
+
+static uint32 nav_flash_next_generation(void);
+
+static uint8 nav_flash_state_accepts_command(void)
+{
+    return (uint8)((NAV_FLASH_STATE_IDLE == module_state)
+                   || (NAV_FLASH_STATE_COMMIT_COMPLETE == module_state)
+                   || (NAV_FLASH_STATE_ABORTED == module_state)
+                   || (NAV_FLASH_STATE_REPLAY_READY == module_state));
+}
+
+static void nav_flash_reset_record_transaction(void)
+{
+    active_record_buffer = 0U;
+    pending_buffer = NAV_FLASH_NO_BUFFER;
+    pending_page = NAV_FLASH_NO_PAGE;
+    record_route_id = 0U;
+    finish_requested = 0U;
+    active_sample_count = 0U;
+    next_page_sequence = 0U;
+    written_page_count = 0U;
+    record_sample_count = 0U;
+    record_generation = 0U;
+    record_distance = 0.0f;
+}
 
 static uint32 nav_flash_route_page_count(uint8 route_index)
 {
@@ -323,6 +349,42 @@ static nav_flash_status_t nav_flash_commit_metadata(
     return status;
 }
 
+static nav_flash_status_t nav_flash_finish_abort(void)
+{
+    nav_flash_status_t status = NAV_FLASH_STATUS_OK;
+
+    // Page writes start at sequence zero, so any completed write may already
+    // have replaced data referenced by the previous route metadata. Invalidate
+    // that directory entry before reporting abort completion.
+    if ((written_page_count != 0U)
+        && nav_flash_route_id_is_valid(record_route_id))
+    {
+        uint8 route_index = (uint8)(record_route_id - 1U);
+
+        if (metadata.route[route_index].valid)
+        {
+            nav_flash_metadata_t new_metadata = metadata;
+
+            new_metadata.generation = nav_flash_next_generation();
+            new_metadata.route[route_index].valid = 0U;
+            new_metadata.route[route_index].sample_count = 0U;
+            new_metadata.route[route_index].data_generation = 0U;
+            status = nav_flash_commit_metadata(&new_metadata);
+            if (NAV_FLASH_STATUS_OK != status)
+            {
+                module_state = NAV_FLASH_STATE_ERROR;
+                last_status = status;
+                return status;
+            }
+        }
+    }
+
+    nav_flash_reset_record_transaction();
+    module_state = NAV_FLASH_STATE_ABORTED;
+    last_status = NAV_FLASH_STATUS_OK;
+    return NAV_FLASH_STATUS_OK;
+}
+
 static uint32 nav_flash_next_generation(void)
 {
     uint32 generation = metadata.generation + 1U;
@@ -439,6 +501,7 @@ nav_flash_status_t nav_flash_init(void)
     active_metadata_page = NAV_FLASH_NO_PAGE;
     replay_sample_count = 0;
     replay_route_id = 0;
+    nav_flash_reset_record_transaction();
 
     if (!nav_flash_config_is_valid())
     {
@@ -482,7 +545,6 @@ nav_flash_status_t nav_flash_init(void)
         nav_flash_reset_metadata(&metadata);
     }
 
-    pending_buffer = NAV_FLASH_NO_BUFFER;
     module_state = NAV_FLASH_STATE_IDLE;
     last_status = NAV_FLASH_STATUS_OK;
     return last_status;
@@ -498,8 +560,7 @@ nav_flash_status_t nav_flash_record_start(uint8 route_id)
     {
         return NAV_FLASH_STATUS_INVALID_ARGUMENT;
     }
-    if ((NAV_FLASH_STATE_IDLE != module_state)
-        && (NAV_FLASH_STATE_REPLAY_READY != module_state))
+    if (!nav_flash_state_accepts_command())
     {
         return NAV_FLASH_STATUS_BUSY;
     }
@@ -510,6 +571,7 @@ nav_flash_status_t nav_flash_record_start(uint8 route_id)
     pending_buffer = NAV_FLASH_NO_BUFFER;
     active_sample_count = 0;
     next_page_sequence = 0;
+    written_page_count = 0;
     record_sample_count = 0;
     record_distance = 0.0f;
     record_route_id = route_id;
@@ -619,6 +681,29 @@ nav_flash_status_t nav_flash_record_stop(void)
     return NAV_FLASH_STATUS_OK;
 }
 
+nav_flash_status_t nav_flash_record_abort(void)
+{
+    if (NAV_FLASH_STATE_UNINITIALIZED == module_state)
+    {
+        return NAV_FLASH_STATUS_NOT_INITIALIZED;
+    }
+    if ((NAV_FLASH_STATE_RECORDING != module_state)
+        && (NAV_FLASH_STATE_FLUSH_PENDING != module_state))
+    {
+        return NAV_FLASH_STATUS_BUSY;
+    }
+
+    // Publish the state first so the ISR recording path stops accepting data.
+    // A buffer already being written by service() is left intact; service()
+    // notices ABORT_PENDING after the write and invalidates metadata if needed.
+    module_state = NAV_FLASH_STATE_ABORT_PENDING;
+    finish_requested = 0U;
+    active_sample_count = 0U;
+    pending_buffer = NAV_FLASH_NO_BUFFER;
+    last_status = NAV_FLASH_STATUS_OK;
+    return NAV_FLASH_STATUS_OK;
+}
+
 nav_flash_status_t nav_flash_service(void)
 {
     nav_flash_status_t status;
@@ -630,6 +715,10 @@ nav_flash_status_t nav_flash_service(void)
     if (NAV_FLASH_STATE_ERROR == module_state)
     {
         return last_status;
+    }
+    if (NAV_FLASH_STATE_ABORT_PENDING == module_state)
+    {
+        return nav_flash_finish_abort();
     }
     if ((NAV_FLASH_STATE_RECORDING != module_state)
         && (NAV_FLASH_STATE_FLUSH_PENDING != module_state))
@@ -649,7 +738,13 @@ nav_flash_status_t nav_flash_service(void)
             last_status = status;
             return status;
         }
+        written_page_count++;
         pending_buffer = NAV_FLASH_NO_BUFFER;
+
+        if (NAV_FLASH_STATE_ABORT_PENDING == module_state)
+        {
+            return nav_flash_finish_abort();
+        }
     }
 
     // If both RAM pages became full before service ran, queue the second page
@@ -698,9 +793,16 @@ nav_flash_status_t nav_flash_service(void)
                 return status;
             }
 
-            finish_requested = 0;
-            record_route_id = 0;
-            module_state = NAV_FLASH_STATE_IDLE;
+            // abort() may pre-empt the blocking metadata write. In that case
+            // the just-committed route must be invalidated in a newer metadata
+            // generation before either terminal state is reported.
+            if (NAV_FLASH_STATE_ABORT_PENDING == module_state)
+            {
+                return nav_flash_finish_abort();
+            }
+
+            nav_flash_reset_record_transaction();
+            module_state = NAV_FLASH_STATE_COMMIT_COMPLETE;
         }
     }
 
@@ -724,8 +826,7 @@ nav_flash_status_t nav_flash_load_route(uint8 route_id)
     {
         return NAV_FLASH_STATUS_INVALID_ARGUMENT;
     }
-    if ((NAV_FLASH_STATE_IDLE != module_state)
-        && (NAV_FLASH_STATE_REPLAY_READY != module_state))
+    if (!nav_flash_state_accepts_command())
     {
         return NAV_FLASH_STATUS_BUSY;
     }
@@ -818,8 +919,7 @@ nav_flash_status_t nav_flash_delete_route(uint8 route_id)
     {
         return NAV_FLASH_STATUS_INVALID_ARGUMENT;
     }
-    if ((NAV_FLASH_STATE_IDLE != module_state)
-        && (NAV_FLASH_STATE_REPLAY_READY != module_state))
+    if (!nav_flash_state_accepts_command())
     {
         return NAV_FLASH_STATUS_BUSY;
     }
