@@ -1474,6 +1474,12 @@
             <name>$PROJ_DIR$\..\..\code\Leg_ctrl.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Menu.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Menu.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Pid.c</name>
         </file>
         <file>

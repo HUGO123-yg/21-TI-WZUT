@@ -58,12 +58,25 @@
 #define CONTROL_LEG_INTERVAL_STEPS        (2U)    // 100 Hz at a 200 Hz fast loop
 #define CONTROL_WHEEL_REQUEST_INTERVAL_STEPS (4U) // request feedback at 50 Hz
 
-// The vehicle must be explicitly enabled after initialization. Keeping this at
-// zero prevents uncalibrated gains or actuator directions from moving the car.
-#define CONTROL_ENABLE_ON_BOOT            (0U)
+// Boot requests a zero-speed standing balance, but does not energize the wheel
+// controller until IMU initialization, wheel feedback, the arm delay and the
+// upright-angle gate have all passed. A later runtime fault never auto-rearms.
+#define CONTROL_DEFAULT_STAND_ON_BOOT      (1U)
+#define CONTROL_STAND_ARM_DELAY_MS         (300U)
+#define CONTROL_STAND_ARM_MAX_PITCH_RAD    (0.26179939f) // 15 degrees
+#define CONTROL_STAND_ARM_MAX_ROLL_RAD     (0.34906585f) // 20 degrees
 #define CONTROL_FALL_PITCH_RAD             (0.61086524f) // 35 degrees
 #define CONTROL_FALL_ROLL_RAD              (0.78539816f) // 45 degrees
 #define CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS  (100U)
+
+// Two top-level menus keep development actions separate from competition
+// workflows. Keys are scanned from the main context; the 1 ms ISR only raises
+// a service flag.
+#define MENU_ENABLE                        (1U)
+#define MENU_DISPLAY_ENABLE                (1U)
+#define MENU_KEY_SCAN_PERIOD_MS            (10U)
+#define MENU_DISPLAY_REFRESH_MS            (100U)
+#define CONTROL_COMPETITION_MODULES_ON_BOOT (0U)
 
 // Wheel driver protocol and logical-to-hardware signs. Logical positive means
 // forward on both wheels. These signs match the last known driver wiring and
@@ -118,9 +131,9 @@
 #define TERRAIN_VISION_EXPOSURE_MAX              (650U)
 #define TERRAIN_VISION_EXPOSURE_STEP             (10U)
 
-// Balance gains are deliberately zero until the motor direction, IMU sign and
-// vehicle masses are verified. The control structure is operational, but zero
-// gains plus CONTROL_ENABLE_ON_BOOT=0 make the default firmware stationary.
+// Balance gains are deliberately zero until motor direction and IMU sign are
+// verified. The startup state machine can enter STANDING, but zero gains still
+// produce zero corrective wheel command until tuning values are supplied.
 #define BALANCE_SPEED_KP                   (0.0f)
 #define BALANCE_SPEED_KI                   (0.0f)
 #define BALANCE_PITCH_KP                   (0.0f)
@@ -175,9 +188,9 @@
 #define BODY_GROUND_CLEARANCE_TOLERANCE_M   (0.005f)
 
 // Leg control uses a coordinate system fixed to each pair of motor pivots:
-// +x is vehicle-forward and +z points downward. Geometry is now measured, but
-// servo output stays disabled until direction and end-stop checks are completed.
-#define LEG_CONTROL_ENABLE                 (0U)
+// +x is vehicle-forward and +z points downward. All four identical servos now
+// have confirmed centres/travel; initialization holds the horizontal pose.
+#define LEG_CONTROL_ENABLE                 (1U)
 #define LEG_BASE_SPACING_M                 (0.038f)
 #define LEG_LINK_A_PROXIMAL_M              (0.059f)
 #define LEG_LINK_A_DISTAL_M                (0.090f)
@@ -201,7 +214,12 @@
 // to callers even though inverse kinematics uses pivot-relative coordinates.
 #define LEG_DEFAULT_X_OFFSET_M             (0.0f)
 #define LEG_DEFAULT_Z_OFFSET_M             (0.0f)
-#define LEG_MAX_ABSOLUTE_Z_M               (0.145f)
+// The linkage can geometrically reach about 145 mm, but the confirmed servo-1
+// operating limit is only +2000 PWM from horizontal (about 60 degrees). Keep
+// normal targets below 140 mm so control never relies on the mechanical stop.
+#define LEG_MECHANICAL_MAX_ABSOLUTE_Z_M    (0.145f)
+#define LEG_SAFE_MAX_ABSOLUTE_Z_M          (0.140f)
+#define LEG_MAX_ABSOLUTE_Z_M               LEG_SAFE_MAX_ABSOLUTE_Z_M
 #define LEG_ROLL_KP_M_PER_RAD              (0.0f)
 #define LEG_ROLL_KD_M_PER_RAD_S            (0.0f)
 #define LEG_ROLL_DIRECTION                  (1.0f)
@@ -302,22 +320,24 @@
 #define JUMP_RETRACT_TIME_MS                (100U)
 #define JUMP_BUFFER_TIME_MS                 (80U)
 #define JUMP_LEG_X_OFFSET_M                 (0.0f)
-#define JUMP_EXTEND_Z_OFFSET_M              (0.060f)
+#define JUMP_EXTEND_Z_OFFSET_M              (0.059f)
 #define JUMP_RETRACT_Z_OFFSET_M             LEG_DEFAULT_Z_OFFSET_M
 #define JUMP_BUFFER_Z_OFFSET_M              (0.020f)
 
-// Servo calibration uses a common horizontal reference of 4500. One measured
-// servo reaches absolute PWM 3300 after about 90 degrees, so the provisional
-// symmetric travel is 1200 counts and the mirrored endpoint is 5700. Output
-// remains disabled until a lifted-car check identifies the measured servo and
-// confirms all four directions/endpoints.
+// All four servos share the steer_1 calibration: horizontal 4500 and 3000 PWM
+// counts per 90 degrees. Normal extension uses only 2000 counts; the measured
+// opposite-side travel from horizontal is 1500 counts. Mirrored installations
+// apply those relative travels in the opposite PWM direction.
 #define LEG_SERVO_COUNT                    (4U)
 #define LEG_SERVO_FREQUENCY_HZ             (300U)
+#define LEG_SERVO_CALIBRATION_COMPLETE     (1U)
 #define LEG_SERVO_REFERENCE_PWM            (4500)
-#define LEG_SERVO_90_DEG_TRAVEL_PWM        (1200)
-#define LEG_SERVO_ABSOLUTE_MIN_PWM         (3300)
-#define LEG_SERVO_ABSOLUTE_MAX_PWM         (5700)
-#define LEG_SERVO_PWM_PER_RAD              (763.94373f)
+#define LEG_SERVO_90_DEG_TRAVEL_PWM        (3000)
+#define LEG_SERVO_PWM_PER_RAD              (1909.85932f)
+#define LEG_SERVO_1_MECHANICAL_MIN_PWM     (3000)
+#define LEG_SERVO_1_MECHANICAL_MAX_PWM     (7500)
+#define LEG_SERVO_SAFE_EXTEND_TRAVEL_PWM   (2000)
+#define LEG_SERVO_SAFE_RETRACT_TRAVEL_PWM  (1500)
 #define LEG_SERVO_1_PWM                    (TCPWM_CH10_P05_1)
 #define LEG_SERVO_2_PWM                    (TCPWM_CH12_P05_3)
 #define LEG_SERVO_3_PWM                    (TCPWM_CH09_P05_0)
@@ -330,6 +350,8 @@
 #define LEG_SERVO_2_DIRECTION              (-1)
 #define LEG_SERVO_3_DIRECTION              (1)
 #define LEG_SERVO_4_DIRECTION              (-1)
+// Joint B moves from pi toward pi/2 during extension, so the angle-to-PWM
+// directions above produce effective extension signs +, -, -, + for 1..4.
 #define LEG_SERVO_1_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
 #define LEG_SERVO_2_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
 #define LEG_SERVO_3_PWM_PER_RAD            LEG_SERVO_PWM_PER_RAD
@@ -338,14 +360,18 @@
 #define LEG_SERVO_2_ZERO_RAD               (0.0f)
 #define LEG_SERVO_3_ZERO_RAD               (3.14159265f)
 #define LEG_SERVO_4_ZERO_RAD               (3.14159265f)
-#define LEG_SERVO_1_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
-#define LEG_SERVO_1_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
-#define LEG_SERVO_2_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
-#define LEG_SERVO_2_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
-#define LEG_SERVO_3_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
-#define LEG_SERVO_3_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
-#define LEG_SERVO_4_PWM_MIN                LEG_SERVO_ABSOLUTE_MIN_PWM
-#define LEG_SERVO_4_PWM_MAX                LEG_SERVO_ABSOLUTE_MAX_PWM
+#define LEG_SERVO_1_PWM_MIN                (LEG_SERVO_REFERENCE_PWM \
+                                            - LEG_SERVO_SAFE_RETRACT_TRAVEL_PWM)
+#define LEG_SERVO_1_PWM_MAX                (LEG_SERVO_REFERENCE_PWM \
+                                            + LEG_SERVO_SAFE_EXTEND_TRAVEL_PWM)
+#define LEG_SERVO_2_PWM_MIN                (LEG_SERVO_REFERENCE_PWM \
+                                            - LEG_SERVO_SAFE_EXTEND_TRAVEL_PWM)
+#define LEG_SERVO_2_PWM_MAX                (LEG_SERVO_REFERENCE_PWM \
+                                            + LEG_SERVO_SAFE_RETRACT_TRAVEL_PWM)
+#define LEG_SERVO_3_PWM_MIN                LEG_SERVO_2_PWM_MIN
+#define LEG_SERVO_3_PWM_MAX                LEG_SERVO_2_PWM_MAX
+#define LEG_SERVO_4_PWM_MIN                LEG_SERVO_1_PWM_MIN
+#define LEG_SERVO_4_PWM_MAX                LEG_SERVO_1_PWM_MAX
 #define LEG_LEFT_JOINT_A_SERVO             (0U) // old steer_1, front/upper
 #define LEG_LEFT_JOINT_B_SERVO             (2U) // old steer_3, rear/lower
 #define LEG_RIGHT_JOINT_A_SERVO            (1U) // old steer_2, front/upper

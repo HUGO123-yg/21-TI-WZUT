@@ -36,6 +36,7 @@
 #include "zf_common_headfile.h"
 #include "config.h"
 #include "Control_system.h"
+#include "Menu.h"
 #include "Terrain_vision.h"
 // 打开新的工程或者工程移动了位置务必执行以下操作
 // 第一步 关闭上面所有打开的文件
@@ -72,6 +73,8 @@ int main(void)
         zf_log(0, "terrain vision init error.");
     }
 
+    menu_init();
+
 
 
     pit_ms_init(PIT_CH0,1);
@@ -79,6 +82,7 @@ int main(void)
     // 此处编写用户代码 例如外设初始化代码等
     while(true)
     {
+        menu_task();
         terrain_vision_task();
 
         // 此处编写需要循环执行的代码
@@ -103,6 +107,7 @@ void pit0_ch0_isr()                     // 定时器通道 0 周期中断服务函数
 {
     pit_isr_flag_clear(PIT_CH0);
     control_system_tick_1ms();
+    menu_tick_1ms();
 }
 
 void pit0_ch1_isr()                     // 定时器通道 1 周期中断服务函数

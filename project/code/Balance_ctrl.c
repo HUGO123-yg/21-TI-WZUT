@@ -199,6 +199,11 @@ void balance_ctrl_update(const imu_data_t *imu,
     balance_state.measured_position_m += balance_state.measured_speed_m_s
                                          * CONTROL_FAST_PERIOD_S;
 
+    if (!balance_state.enabled)
+    {
+        balance_reset_controllers();
+        return;
+    }
     if (fabsf(pitch_rad) > CONTROL_FALL_PITCH_RAD)
     {
         balance_ctrl_force_fault(BALANCE_FAULT_PITCH_LIMIT);
@@ -207,11 +212,6 @@ void balance_ctrl_update(const imu_data_t *imu,
     if (fabsf(roll_rad) > CONTROL_FALL_ROLL_RAD)
     {
         balance_ctrl_force_fault(BALANCE_FAULT_ROLL_LIMIT);
-        return;
-    }
-    if (!balance_state.enabled)
-    {
-        balance_reset_controllers();
         return;
     }
 

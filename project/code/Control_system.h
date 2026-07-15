@@ -17,6 +17,16 @@ typedef enum
     CONTROL_STATUS_JUMP_ERROR
 } control_status_t;
 
+typedef enum
+{
+    CONTROL_STARTUP_DISABLED = 0,
+    CONTROL_STARTUP_WAITING_DELAY,
+    CONTROL_STARTUP_WAITING_WHEEL_FEEDBACK,
+    CONTROL_STARTUP_WAITING_UPRIGHT,
+    CONTROL_STARTUP_STANDING,
+    CONTROL_STARTUP_FAULT
+} control_startup_state_t;
+
 typedef struct
 {
     control_status_t status;
@@ -41,6 +51,9 @@ typedef struct
     uint8 bridge_active;
     uint8 bumpy_active;
     uint8 rotation_active;
+    uint8 stand_request_pending;
+    uint8 balance_enabled;
+    control_startup_state_t startup_state;
 } control_system_state_t;
 
 control_status_t control_system_init(void);
@@ -49,6 +62,9 @@ control_status_t control_system_init(void);
 void control_system_tick_1ms(void);
 
 void control_system_set_command(const balance_command_t *command);
+// Queues a zero-speed stand request. Success means the request was accepted;
+// startup_state reports whether balance is active or still waiting on a gate.
+uint8 control_system_request_stand(void);
 uint8 control_system_set_enabled(uint8 enabled);
 uint8 control_system_start_jump(void);
 uint8 control_system_abort_jump(void);

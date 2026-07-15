@@ -60,12 +60,25 @@ uint8 mt9v03x_image[MT9V03X_H][MT9V03X_W];
 
 static uint8 perfect_proportion = 0;
 
+#if defined(__ICCARM__)
 #pragma location = 0x28026024                                                   // 将下面这个数组定义到指定的RAM地址
-__no_init uint8  mt9v03x_image_temp[MT9V03X_H][MT9V03X_W];                      
+__no_init uint8  mt9v03x_image_temp[MT9V03X_H][MT9V03X_W];
 #pragma location = 0x28006bf0
 __no_init uint16 mt9v03x_h_num;
 #pragma location = 0x28006bf2
 __no_init uint16 mt9v03x_w_num;
+#elif defined(__GNUC__) && defined(CY_CORE_CM7_0)
+// cmake/linker/cm7_common.ld keeps these no-init DMA objects at the IAR addresses.
+uint8  mt9v03x_image_temp[MT9V03X_H][MT9V03X_W] __attribute__((section(".mt9v03x_image_temp")));
+uint16 mt9v03x_h_num __attribute__((section(".mt9v03x_image_size")));
+uint16 mt9v03x_w_num __attribute__((section(".mt9v03x_image_size")));
+#elif defined(__GNUC__)
+uint8  mt9v03x_image_temp[MT9V03X_H][MT9V03X_W];
+uint16 mt9v03x_h_num;
+uint16 mt9v03x_w_num;
+#else
+#error "Add MT9V03X fixed-address declarations for this compiler."
+#endif
 
 void camera_finish_callback(void)
 {  

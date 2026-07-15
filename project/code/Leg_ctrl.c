@@ -246,7 +246,8 @@ leg_ctrl_status_t leg_ctrl_init(void)
         leg_state.status = LEG_CTRL_STATUS_DISABLED;
         return leg_state.status;
     }
-    if (!leg_all_calibration_is_valid())
+    if (!LEG_SERVO_CALIBRATION_COMPLETE
+        || !leg_all_calibration_is_valid())
     {
         leg_state.status = LEG_CTRL_STATUS_UNCALIBRATED;
         return leg_state.status;

@@ -1,5 +1,6 @@
 #include "Control_system.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "Imu.h"
@@ -13,6 +14,81 @@ static uint32 fast_divider;
 static uint32 fast_step_count;
 static balance_command_t requested_command;
 static uint8 restore_balance_after_jump;
+
+#define CONTROL_DEG_TO_RAD (0.017453292519943295f)
+
+static void control_system_set_zero_command(void)
+{
+    memset(&requested_command, 0, sizeof(requested_command));
+    balance_ctrl_set_command(&requested_command);
+}
+
+static uint8 control_system_try_start_stand(void)
+{
+    const balance_state_t *balance;
+    const imu_data_t *imu;
+
+    if (!control_state.stand_request_pending)
+    {
+        return 0U;
+    }
+    if (control_state.scheduler_tick_ms < CONTROL_STAND_ARM_DELAY_MS)
+    {
+        control_state.startup_state = CONTROL_STARTUP_WAITING_DELAY;
+        return 0U;
+    }
+    if ((CONTROL_STATUS_OK != control_state.status)
+        || wheel_driver_is_stop_locked()
+        || jump_ctrl_is_active()
+        || rotation_ctrl_is_active())
+    {
+        control_state.stand_request_pending = 0U;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
+        return 0U;
+    }
+    if (!control_state.wheel_feedback_ready
+        || (control_state.wheel_feedback_age_ms
+            > CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS))
+    {
+        control_state.startup_state =
+            CONTROL_STARTUP_WAITING_WHEEL_FEEDBACK;
+        wheel_driver_stop();
+        return 0U;
+    }
+
+    imu = imu_get_data();
+    if ((0 == imu)
+        || (fabsf(imu->pitch_deg * CONTROL_DEG_TO_RAD)
+            > CONTROL_STAND_ARM_MAX_PITCH_RAD)
+        || (fabsf(imu->roll_deg * CONTROL_DEG_TO_RAD)
+            > CONTROL_STAND_ARM_MAX_ROLL_RAD))
+    {
+        control_state.startup_state = CONTROL_STARTUP_WAITING_UPRIGHT;
+        wheel_driver_stop();
+        return 0U;
+    }
+
+    balance = balance_ctrl_get_state();
+    if (BALANCE_FAULT_NONE != balance->fault_flags)
+    {
+        control_state.stand_request_pending = 0U;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
+        wheel_driver_stop();
+        return 0U;
+    }
+    if (!balance->enabled && !balance_ctrl_set_enabled(1U))
+    {
+        control_state.stand_request_pending = 0U;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
+        wheel_driver_stop();
+        return 0U;
+    }
+
+    control_state.stand_request_pending = 0U;
+    control_state.balance_enabled = 1U;
+    control_state.startup_state = CONTROL_STARTUP_STANDING;
+    return 1U;
+}
 
 static void control_system_sync_rotation_state(void)
 {
@@ -67,6 +143,7 @@ control_status_t control_system_init(void)
     rotation_ctrl_status_t rotation_status;
 
     memset(&control_state, 0, sizeof(control_state));
+    control_state.startup_state = CONTROL_STARTUP_DISABLED;
     last_wheel_frame_count = 0U;
     fast_divider = 0U;
     fast_step_count = 0U;
@@ -83,7 +160,7 @@ control_status_t control_system_init(void)
     bridge_status = bridge_ctrl_init();
     bumpy_status = bumpy_ctrl_init();
     rotation_status = rotation_ctrl_init();
-    if (!leg_ctrl_is_ready())
+    if (!leg_ctrl_is_ready() || !CONTROL_COMPETITION_MODULES_ON_BOOT)
     {
         bridge_status = bridge_ctrl_set_enabled(0U);
         bumpy_status = bumpy_ctrl_set_enabled(0U);
@@ -104,6 +181,7 @@ control_status_t control_system_init(void)
     if (IMU_STATUS_OK != imu_status)
     {
         control_state.status = CONTROL_STATUS_IMU_ERROR;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
         control_state.imu_error_count++;
         balance_ctrl_force_fault(BALANCE_FAULT_IMU);
         wheel_driver_stop();
@@ -118,9 +196,12 @@ control_status_t control_system_init(void)
     }
 
     control_state.status = CONTROL_STATUS_OK;
-    if (CONTROL_ENABLE_ON_BOOT)
+    control_system_set_zero_command();
+    if (CONTROL_DEFAULT_STAND_ON_BOOT)
     {
-        (void)control_system_set_enabled(1U);
+        control_state.stand_request_pending = 1U;
+        control_state.startup_state = CONTROL_STARTUP_WAITING_DELAY;
+        wheel_driver_stop();
     }
     return control_state.status;
 }
@@ -171,6 +252,9 @@ void control_system_tick_1ms(void)
             control_system_sync_rotation_state();
         }
         control_state.status = CONTROL_STATUS_IMU_ERROR;
+        control_state.stand_request_pending = 0U;
+        control_state.balance_enabled = 0U;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
         control_state.imu_error_count++;
         balance_ctrl_force_fault(BALANCE_FAULT_IMU);
         wheel_driver_stop();
@@ -195,7 +279,10 @@ void control_system_tick_1ms(void)
         wheel_driver_request_speed();
     }
 
+    (void)control_system_try_start_stand();
+
     balance = balance_ctrl_get_state();
+    control_state.balance_enabled = balance->enabled;
     if (balance->enabled
         && (!control_state.wheel_feedback_ready
             || (control_state.wheel_feedback_age_ms
@@ -361,6 +448,16 @@ void control_system_tick_1ms(void)
 
     balance_ctrl_update(imu, &wheel_feedback, run_speed_loop);
     balance = balance_ctrl_get_state();
+    control_state.balance_enabled = balance->enabled;
+    if (BALANCE_FAULT_NONE != balance->fault_flags)
+    {
+        control_state.stand_request_pending = 0U;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
+    }
+    else if (balance->enabled)
+    {
+        control_state.startup_state = CONTROL_STARTUP_STANDING;
+    }
     if (rotation_ctrl_is_active() && !balance->enabled)
     {
         (void)rotation_ctrl_abort();
@@ -420,37 +517,60 @@ void control_system_set_command(const balance_command_t *command)
     }
 }
 
+uint8 control_system_request_stand(void)
+{
+    if ((CONTROL_STATUS_OK != control_state.status)
+        || wheel_driver_is_stop_locked()
+        || jump_ctrl_is_active())
+    {
+        return 0U;
+    }
+
+    (void)rotation_ctrl_abort();
+    control_system_sync_rotation_state();
+    control_state.last_bridge_status =
+        (uint32)bridge_ctrl_set_enabled(0U);
+    control_state.last_bumpy_status =
+        (uint32)bumpy_ctrl_set_enabled(0U);
+    (void)leg_ctrl_set_differential_z_offset(0.0f);
+    control_state.bridge_active = 0U;
+    control_state.bumpy_active = 0U;
+    control_system_set_zero_command();
+    control_state.stand_request_pending = 1U;
+    if (control_state.scheduler_tick_ms < CONTROL_STAND_ARM_DELAY_MS)
+    {
+        control_state.startup_state = CONTROL_STARTUP_WAITING_DELAY;
+    }
+    else
+    {
+        control_state.startup_state =
+            CONTROL_STARTUP_WAITING_WHEEL_FEEDBACK;
+    }
+    (void)control_system_try_start_stand();
+    return 1U;
+}
+
 uint8 control_system_set_enabled(uint8 enabled)
 {
     if (!enabled)
     {
         (void)rotation_ctrl_abort();
         control_system_sync_rotation_state();
-        (void)bridge_ctrl_abort();
-        (void)bumpy_ctrl_abort();
+        control_state.last_bridge_status =
+            (uint32)bridge_ctrl_set_enabled(0U);
+        control_state.last_bumpy_status =
+            (uint32)bumpy_ctrl_set_enabled(0U);
         (void)leg_ctrl_set_differential_z_offset(0.0f);
         control_state.bridge_active = 0U;
         control_state.bumpy_active = 0U;
+        control_state.stand_request_pending = 0U;
+        control_state.balance_enabled = 0U;
+        control_state.startup_state = CONTROL_STARTUP_DISABLED;
         (void)balance_ctrl_set_enabled(0U);
         wheel_driver_stop();
         return 1U;
     }
-
-    if (wheel_driver_is_stop_locked()
-        || jump_ctrl_is_active()
-        || rotation_ctrl_is_active())
-    {
-        return 0U;
-    }
-
-    if ((CONTROL_STATUS_OK != control_state.status)
-        || !control_state.wheel_feedback_ready
-        || (control_state.wheel_feedback_age_ms
-            > CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS))
-    {
-        return 0U;
-    }
-    return balance_ctrl_set_enabled(1U);
+    return control_system_request_stand();
 }
 
 uint8 control_system_start_jump(void)
