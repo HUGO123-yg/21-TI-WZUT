@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "syslib/cy_syslib.h"
 #include "zf_driver_uart.h"
 
 #define WHEEL_FRAME_HEADER       (0xA5U)
@@ -18,6 +19,8 @@ typedef struct
     volatile int16 right_rpm;
     volatile uint32 valid_frame_count;
     volatile uint32 invalid_frame_count;
+    volatile uint32 transmitted_frame_count;
+    volatile uint32 dropped_tx_frame_count;
     volatile uint8 output_stop_locked;
     uint8 config_valid;
 } wheel_driver_state_t;
@@ -55,8 +58,11 @@ static int16 wheel_limit_command(int32 command)
 
 static void wheel_send_frame(uint8 command, int16 left_value, int16 right_value)
 {
+    volatile stc_SCB_t *uart_base;
     uint8 frame[WHEEL_FRAME_LENGTH];
     uint8 index;
+    uint32 interrupt_state;
+    uint32 free_entries;
 
     if (!wheel_state.config_valid)
     {
@@ -74,7 +80,26 @@ static void wheel_send_frame(uint8 command, int16 left_value, int16 right_value)
     {
         frame[6] = (uint8)(frame[6] + frame[index]);
     }
-    uart_write_buffer(WHEEL_DRIVER_UART, frame, WHEEL_FRAME_LENGTH);
+
+    // The generic uart_write_buffer waits for every byte to leave the wire,
+    // which made each seven-byte frame occupy the control path for about
+    // 152 us at 460800 baud. The SCB has a deep hardware FIFO, so copy one
+    // complete protocol frame atomically and let the peripheral shift it out.
+    uart_base = get_scb_module(WHEEL_DRIVER_UART);
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    free_entries = Cy_SCB_GetFifoSize(uart_base)
+                   - Cy_SCB_GetNumInTxFifo(uart_base);
+    if (free_entries >= WHEEL_FRAME_LENGTH)
+    {
+        Cy_SCB_WriteArrayNoCheck(uart_base, frame, WHEEL_FRAME_LENGTH);
+        wheel_state.transmitted_frame_count++;
+    }
+    else
+    {
+        // Never enqueue a partial frame: it would desynchronize the receiver.
+        wheel_state.dropped_tx_frame_count++;
+    }
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
 }
 
 static uint8 wheel_frame_is_valid(const uint8 *frame)
@@ -216,4 +241,6 @@ void wheel_driver_get_feedback(wheel_feedback_t *feedback)
                                   * WHEEL_RIGHT_SPEED_DIRECTION);
     feedback->valid_frame_count = wheel_state.valid_frame_count;
     feedback->invalid_frame_count = wheel_state.invalid_frame_count;
+    feedback->transmitted_frame_count = wheel_state.transmitted_frame_count;
+    feedback->dropped_tx_frame_count = wheel_state.dropped_tx_frame_count;
 }

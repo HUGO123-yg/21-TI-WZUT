@@ -9,6 +9,8 @@ typedef struct
     int16 right_rpm;
     uint32 valid_frame_count;
     uint32 invalid_frame_count;
+    uint32 transmitted_frame_count;
+    uint32 dropped_tx_frame_count;
 } wheel_feedback_t;
 
 void wheel_driver_init(void);

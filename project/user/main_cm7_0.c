@@ -37,6 +37,7 @@
 #include "config.h"
 #include "Control_system.h"
 #include "Menu.h"
+#include "Pit_scheduler.h"
 #include "Terrain_vision.h"
 // 打开新的工程或者工程移动了位置务必执行以下操作
 // 第一步 关闭上面所有打开的文件
@@ -75,8 +76,7 @@ int main(void)
 
     menu_init();
 
-
-
+    pit_scheduler_init();
     pit_ms_init(PIT_CH0,1);
 
     // 此处编写用户代码 例如外设初始化代码等
@@ -105,9 +105,18 @@ int main(void)
 
 void pit0_ch0_isr()                     // 定时器通道 0 周期中断服务函数
 {
+    uint32 start_cycles;
+
+    start_cycles = pit_scheduler_measure_begin();
     pit_isr_flag_clear(PIT_CH0);
-    control_system_tick_1ms();
+    pit_scheduler_schedule_tick_from_isr();
     menu_tick_1ms();
+    pit_scheduler_record_pit_isr(start_cycles);
+}
+
+void PendSV_Handler(void)
+{
+    pit_scheduler_run_deferred();
 }
 
 void pit0_ch1_isr()                     // 定时器通道 1 周期中断服务函数

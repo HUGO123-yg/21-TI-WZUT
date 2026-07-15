@@ -1197,6 +1197,12 @@
             <name>$PROJ_DIR$\..\..\code\Pid.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Pit_scheduler.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Pit_scheduler.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Rotation_ctrl.c</name>
         </file>
         <file>

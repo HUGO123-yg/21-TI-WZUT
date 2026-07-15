@@ -427,9 +427,7 @@ void control_system_tick_1ms(void)
     }
     if (jump_ctrl_is_active())
     {
-        // Redundant with the driver lock by design: refresh zero duty every
-        // millisecond so a stale UART command cannot survive during a jump.
-        wheel_driver_stop();
+        // The stop lock was refreshed once at the start of this tick.
         jump_ctrl_tick_1ms();
     }
     fast_divider++;
@@ -508,7 +506,6 @@ void control_system_tick_1ms(void)
 
     if (wheel_driver_is_stop_locked())
     {
-        wheel_driver_stop();
         if (control_state.jump_active && !jump_ctrl_is_active())
         {
             control_system_finish_jump();

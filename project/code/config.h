@@ -60,6 +60,16 @@
 #define CONTROL_LEG_INTERVAL_STEPS        (2U)    // 200 Hz 快速环路下为 100 Hz
 #define CONTROL_WHEEL_REQUEST_INTERVAL_STEPS (4U) // 以 50 Hz 请求反馈
 
+// PIT_CH0 只清中断标志、记录节拍并挂起最低优先级 PendSV。
+// 完整控制计算仍按 1 ms 节拍执行，但不再拉长高优先级 PIT ISR。
+// 将 DEFER 临时置 0 可在同一套 DWT 计数下测量改造前基线。
+#define PIT_CONTROL_DEFER_ENABLE              (1U)
+#define PIT_RUNTIME_PROFILING_ENABLE          (1U)
+#define PIT_ISR_WCET_BUDGET_US                (10U)
+#define PIT_CONTROL_TICK_WCET_BUDGET_US       (900U)
+#define PIT_CONTROL_PENDING_TICK_LIMIT        (8U)
+#define PIT_CONTROL_MAX_TICKS_PER_PENDSV      (2U)
+
 // 平衡仅通过明确的菜单/控制请求来使能。启动时
 // 初始化并监控传感器，两个轮子指令保持为零。
 #define CONTROL_DEFAULT_STAND_ON_BOOT      (0U)
