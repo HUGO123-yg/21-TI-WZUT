@@ -1,8 +1,10 @@
 #include "Control_system.h"
 
+#include <float.h>
 #include <math.h>
 #include <string.h>
 
+#include "syslib/cy_syslib.h"
 #include "Imu.h"
 #include "Navigation.h"
 #include "Wheel_driver.h"
@@ -12,15 +14,87 @@ static control_system_state_t control_state;
 static uint32 last_wheel_frame_count;
 static uint32 fast_divider;
 static uint32 fast_step_count;
-static balance_command_t requested_command;
+static volatile control_drive_command_t requested_drive_command;
+static volatile uint32 requested_drive_command_sequence;
 static uint8 restore_balance_after_jump;
 
 #define CONTROL_DEG_TO_RAD (0.017453292519943295f)
 
+static uint8 control_system_float_is_finite(float value)
+{
+    return (uint8)((value == value)
+                   && (value <= FLT_MAX)
+                   && (value >= -FLT_MAX));
+}
+
+static uint8 control_system_drive_command_is_valid(
+    const control_drive_command_t *command)
+{
+    if (0 == command)
+    {
+        return 0U;
+    }
+
+    return (uint8)(control_system_float_is_finite(
+                       command->target_speed_m_s)
+                   && control_system_float_is_finite(
+                       command->target_yaw_rate_rad_s)
+                   && control_system_float_is_finite(
+                       command->target_leg_x_offset_m)
+                   && control_system_float_is_finite(
+                       command->target_leg_z_offset_m));
+}
+
+static void control_system_store_drive_command(
+    const control_drive_command_t *command)
+{
+    uint32 interrupt_state;
+    uint32 next_sequence;
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    requested_drive_command = *command;
+    next_sequence = requested_drive_command_sequence + 1U;
+    if (0U == next_sequence)
+    {
+        next_sequence = 1U;
+    }
+    requested_drive_command_sequence = next_sequence;
+    control_state.drive_command_sequence = next_sequence;
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+}
+
+static void control_system_snapshot_drive_command(
+    control_drive_command_t *command,
+    uint32 *sequence)
+{
+    uint32 interrupt_state;
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    *command = requested_drive_command;
+    *sequence = requested_drive_command_sequence;
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+}
+
+static void control_system_make_balance_command(
+    const control_drive_command_t *drive,
+    balance_command_t *balance)
+{
+    balance->target_speed_m_s = drive->target_speed_m_s;
+    balance->target_yaw_rate_rad_s = drive->target_yaw_rate_rad_s;
+    balance->target_leg_x_offset_m = drive->target_leg_x_offset_m;
+    balance->target_leg_z_offset_m = drive->target_leg_z_offset_m;
+    balance->use_leg_speed_control = 0U;
+}
+
 static void control_system_set_zero_command(void)
 {
-    memset(&requested_command, 0, sizeof(requested_command));
-    balance_ctrl_set_command(&requested_command);
+    control_drive_command_t drive_command;
+    balance_command_t balance_command;
+
+    memset(&drive_command, 0, sizeof(drive_command));
+    memset(&balance_command, 0, sizeof(balance_command));
+    control_system_store_drive_command(&drive_command);
+    balance_ctrl_set_command(&balance_command);
 }
 
 static uint8 control_system_try_start_stand(void)
@@ -228,9 +302,13 @@ control_status_t control_system_init(void)
     last_wheel_frame_count = 0U;
     fast_divider = 0U;
     fast_step_count = 0U;
+    requested_drive_command_sequence = 0U;
     restore_balance_after_jump = 0U;
     leg_init_failed = 0U;
-    memset(&requested_command, 0, sizeof(requested_command));
+    requested_drive_command.target_speed_m_s = 0.0f;
+    requested_drive_command.target_yaw_rate_rad_s = 0.0f;
+    requested_drive_command.target_leg_x_offset_m = 0.0f;
+    requested_drive_command.target_leg_z_offset_m = 0.0f;
     balance_ctrl_init();
     control_state.balance_config_valid = balance_ctrl_config_is_valid();
     wheel_driver_init();
@@ -326,6 +404,7 @@ void control_system_tick_1ms(void)
     const balance_command_t *command;
     const navigation_state_t *navigation;
     const bridge_ctrl_state_t *bridge;
+    control_drive_command_t drive_command;
     balance_command_t active_command;
     balance_command_t rotation_command;
     balance_command_t bridge_command;
@@ -337,6 +416,7 @@ void control_system_tick_1ms(void)
     bumpy_ctrl_status_t bumpy_status;
     uint8 run_speed_loop;
     uint8 wheel_feedback_valid;
+    uint32 drive_command_sequence;
 
     control_state.scheduler_tick_ms++;
     if (wheel_driver_is_stop_locked())
@@ -436,7 +516,10 @@ void control_system_tick_1ms(void)
         return;
     }
 
-    active_command = requested_command;
+    control_system_snapshot_drive_command(&drive_command,
+                                          &drive_command_sequence);
+    control_system_make_balance_command(&drive_command, &active_command);
+    control_state.applied_drive_command_sequence = drive_command_sequence;
     navigation = navigation_get_state();
     if (NAVIGATION_ROUTE_CONTROL_ENABLE
         && (NAVIGATION_MODE_REPLAYING == navigation->mode))
@@ -634,15 +717,21 @@ void control_system_tick_1ms(void)
     }
 }
 
-void control_system_set_command(const balance_command_t *command)
+uint8 control_system_submit_drive_command(
+    const control_drive_command_t *command)
 {
-    if (0 != command)
+    if (!control_system_drive_command_is_valid(command))
     {
-        requested_command = *command;
-        // Terrain modules own this arbitration flag. Callers request speed and
-        // leg pose, but cannot accidentally disable wheel speed stabilization.
-        requested_command.use_leg_speed_control = 0U;
+        uint32 interrupt_state;
+
+        interrupt_state = Cy_SysLib_EnterCriticalSection();
+        control_state.rejected_drive_command_count++;
+        Cy_SysLib_ExitCriticalSection(interrupt_state);
+        return 0U;
     }
+
+    control_system_store_drive_command(command);
+    return 1U;
 }
 
 uint8 control_system_request_stand(void)

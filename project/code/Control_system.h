@@ -43,11 +43,25 @@ typedef enum
     CONTROL_STARTUP_EMERGENCY_STOP
 } control_startup_state_t;
 
+// External motion intent. Submit the complete structure in one call so speed,
+// steering and leg pose always enter the control ISR as one coherent command.
+// Terrain/action modules may shape this intent after it has been consumed.
+typedef struct
+{
+    float target_speed_m_s;
+    float target_yaw_rate_rad_s;
+    float target_leg_x_offset_m;
+    float target_leg_z_offset_m;
+} control_drive_command_t;
+
 typedef struct
 {
     control_status_t status;
     uint32 fault_flags;
     uint32 scheduler_tick_ms;
+    uint32 drive_command_sequence;
+    uint32 applied_drive_command_sequence;
+    uint32 rejected_drive_command_count;
     uint32 wheel_feedback_age_ms;
     uint32 imu_error_count;
     uint32 leg_error_count;
@@ -84,7 +98,10 @@ control_status_t control_system_init(void);
 // Called from the 1 ms PIT callback. Work is executed only at configured rates.
 void control_system_tick_1ms(void);
 
-void control_system_set_command(const balance_command_t *command);
+// Atomically publishes one complete external motion command. Invalid floating
+// point values are rejected without changing the last accepted command.
+uint8 control_system_submit_drive_command(
+    const control_drive_command_t *command);
 // Queues a zero-speed stand request. Success means the request was accepted;
 // startup_state reports whether balance is active or still waiting on a gate.
 uint8 control_system_request_stand(void);

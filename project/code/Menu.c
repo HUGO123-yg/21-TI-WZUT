@@ -80,10 +80,10 @@ static const menu_item_t *menu_current_items(void)
 
 static void menu_set_zero_command(void)
 {
-    balance_command_t command;
+    control_drive_command_t command;
 
     memset(&command, 0, sizeof(command));
-    control_system_set_command(&command);
+    (void)control_system_submit_drive_command(&command);
 }
 
 static void menu_stop_navigation(void)
