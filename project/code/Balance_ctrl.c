@@ -17,6 +17,39 @@ static pid_controller_t yaw_rate_pid;
 static balance_command_t balance_target;
 static balance_state_t balance_state;
 
+uint8 balance_ctrl_config_is_valid(void)
+{
+#if !BALANCE_USE_STATE_FEEDBACK
+    float pitch_response_gain;
+    float rate_response_gain;
+#endif
+
+    if ((fabsf(fabsf(BALANCE_WHEEL_OUTPUT_DIRECTION) - 1.0f) > 0.0001f)
+        || (BALANCE_RATE_KP <= 0.0f)
+        || (BALANCE_MAX_PITCH_REFERENCE_RAD <= 0.0f)
+        || (BALANCE_MAX_PITCH_RATE_RAD_S <= 0.0f)
+        || (BALANCE_MAX_RATE_INTEGRAL < 0.0f)
+        || (fabsf(BALANCE_PITCH_ZERO_RAD) >= 1.57079633f))
+    {
+        return 0U;
+    }
+
+#if !BALANCE_USE_STATE_FEEDBACK
+    // With the verified wheel/IMU convention, pitch above the trim must produce
+    // a negative logical wheel command, while positive pitch rate must produce
+    // a positive damping command. Both coefficients are therefore positive.
+    pitch_response_gain = BALANCE_WHEEL_OUTPUT_DIRECTION
+        * BALANCE_RATE_KP * BALANCE_PITCH_KP;
+    rate_response_gain = BALANCE_WHEEL_OUTPUT_DIRECTION
+        * BALANCE_RATE_KP * (-(BALANCE_PITCH_KD + 1.0f));
+    if ((pitch_response_gain <= 0.0f) || (rate_response_gain <= 0.0f))
+    {
+        return 0U;
+    }
+#endif
+    return 1U;
+}
+
 static float balance_clamp(float value, float minimum, float maximum)
 {
     if (value < minimum)
@@ -105,6 +138,10 @@ void balance_ctrl_init(void)
              -BALANCE_MAX_YAW_COMMAND,
              BALANCE_MAX_YAW_COMMAND);
     balance_reset_controllers();
+    if (!balance_ctrl_config_is_valid())
+    {
+        balance_state.fault_flags |= (uint32)BALANCE_FAULT_CONFIG;
+    }
 }
 
 void balance_ctrl_set_command(const balance_command_t *command)
@@ -142,7 +179,9 @@ void balance_ctrl_clear_faults(void)
 {
     if (!balance_state.enabled)
     {
-        balance_state.fault_flags = BALANCE_FAULT_NONE;
+        balance_state.fault_flags = balance_ctrl_config_is_valid()
+            ? (uint32)BALANCE_FAULT_NONE
+            : (uint32)BALANCE_FAULT_CONFIG;
     }
 }
 
@@ -204,7 +243,8 @@ void balance_ctrl_update(const imu_data_t *imu,
         balance_reset_controllers();
         return;
     }
-    if (fabsf(pitch_rad) > CONTROL_FALL_PITCH_RAD)
+    if (fabsf(pitch_rad - BALANCE_PITCH_ZERO_RAD)
+        > CONTROL_FALL_PITCH_ERROR_RAD)
     {
         balance_ctrl_force_fault(BALANCE_FAULT_PITCH_LIMIT);
         return;

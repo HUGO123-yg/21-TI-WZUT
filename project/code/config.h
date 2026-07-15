@@ -13,6 +13,8 @@
 #define IMU_GYRO_LSB_PER_DPS             (14.3f)
 
 // Sensor-axis to vehicle-axis mapping. Axis indices are X=0, Y=1, Z=2.
+// This is the same installed-IMU mapping used by the legacy balance core:
+// X=raw X, Y=-raw Y and Z=-raw Z. Imu.c rejects directions other than +/-1.
 #define IMU_BODY_X_SOURCE_AXIS           (0U)
 #define IMU_BODY_Y_SOURCE_AXIS           (1U)
 #define IMU_BODY_Z_SOURCE_AXIS           (2U)
@@ -58,16 +60,25 @@
 #define CONTROL_LEG_INTERVAL_STEPS        (2U)    // 100 Hz at a 200 Hz fast loop
 #define CONTROL_WHEEL_REQUEST_INTERVAL_STEPS (4U) // request feedback at 50 Hz
 
-// Boot requests a zero-speed standing balance, but does not energize the wheel
-// controller until IMU initialization, wheel feedback, the arm delay and the
-// upright-angle gate have all passed. A later runtime fault never auto-rearms.
-#define CONTROL_DEFAULT_STAND_ON_BOOT      (1U)
+// Balance is armed only by an explicit menu/control request. Boot initializes
+// and monitors the sensors with both wheel commands held at zero.
+#define CONTROL_DEFAULT_STAND_ON_BOOT      (0U)
 #define CONTROL_STAND_ARM_DELAY_MS         (300U)
-#define CONTROL_STAND_ARM_MAX_PITCH_RAD    (0.26179939f) // 15 degrees
+#define CONTROL_STAND_ARM_MAX_PITCH_ERROR_RAD (0.17453293f) // 10 degrees
 #define CONTROL_STAND_ARM_MAX_ROLL_RAD     (0.34906585f) // 20 degrees
-#define CONTROL_FALL_PITCH_RAD             (0.61086524f) // 35 degrees
+#define CONTROL_FALL_PITCH_ERROR_RAD       (0.61086524f) // 35 degrees
 #define CONTROL_FALL_ROLL_RAD              (0.78539816f) // 45 degrees
 #define CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS  (100U)
+
+// Fault recovery is always explicit. The wheel driver remains stop-locked
+// until the IMU is healthy, the chassis has been placed upright and the legs
+// have returned to this safe pose. Software emergency stop holds the last
+// valid leg PWM by default to avoid an uncontrolled chassis collapse; set the
+// output-disable switch only when the mechanism has an independent support.
+#define CONTROL_FAULT_RECOVERY_MAX_PITCH_ERROR_RAD \
+    CONTROL_STAND_ARM_MAX_PITCH_ERROR_RAD
+#define CONTROL_FAULT_RECOVERY_MAX_ROLL_RAD  CONTROL_STAND_ARM_MAX_ROLL_RAD
+#define CONTROL_ESTOP_DISABLE_LEG_OUTPUT     (0U)
 
 // Two top-level menus keep development actions separate from competition
 // workflows. Keys are scanned from the main context; the 1 ms ISR only raises
@@ -79,8 +90,9 @@
 #define CONTROL_COMPETITION_MODULES_ON_BOOT (0U)
 
 // Wheel driver protocol and logical-to-hardware signs. Logical positive means
-// forward on both wheels. These signs match the last known driver wiring and
-// must be checked with the vehicle lifted before balance control is enabled.
+// vehicle-forward on both wheels. These values reproduce the validated legacy
+// paths CYT2_D_motor_ctrl(-left, +right) and speed=(raw_left-raw_right)/2.
+// Wheel_driver.c refuses output if any direction is not exactly +1 or -1.
 #define WHEEL_DRIVER_UART                  (UART_2)
 #define WHEEL_DRIVER_BAUDRATE              (460800U)
 #define WHEEL_DRIVER_TX_PIN                (UART2_TX_P10_1)
@@ -131,15 +143,18 @@
 #define TERRAIN_VISION_EXPOSURE_MAX              (650U)
 #define TERRAIN_VISION_EXPOSURE_STEP             (10U)
 
-// Balance gains are deliberately zero until motor direction and IMU sign are
-// verified. The startup state machine can enter STANDING, but zero gains still
-// produce zero corrective wheel command until tuning values are supplied.
-#define BALANCE_SPEED_KP                   (0.0f)
+// Basic balance cascade converted from the validated legacy 660RB controller.
+// The old angle/rate gains 700, 50 and 1.1 operated on degrees and raw gyro
+// counts (14.3 LSB/(deg/s)); these values preserve the same small-signal wheel
+// response in rad, rad/s and driver-command units at the current 200 Hz rate.
+// The speed gain also includes the old 0.003 deg/output coupling and the wheel
+// RPM-to-m/s conversion. Integral gains stay zero for the first hardware tune.
+#define BALANCE_SPEED_KP                   (0.0806452f)
 #define BALANCE_SPEED_KI                   (0.0f)
-#define BALANCE_PITCH_KP                   (0.0f)
+#define BALANCE_PITCH_KP                   (-48.9510f)
 #define BALANCE_PITCH_KI                   (0.0f)
-#define BALANCE_PITCH_KD                   (0.0f)
-#define BALANCE_RATE_KP                    (0.0f)
+#define BALANCE_PITCH_KD                   (-0.0174825f)
+#define BALANCE_RATE_KP                    (901.263f)
 #define BALANCE_RATE_KI                    (0.0f)
 #define BALANCE_YAW_RATE_KP                (0.0f)
 #define BALANCE_YAW_RATE_KI                (0.0f)
@@ -147,8 +162,8 @@
 #define BALANCE_MAX_PITCH_RATE_RAD_S       (3.0f)
 #define BALANCE_MAX_RATE_INTEGRAL          (500.0f)
 #define BALANCE_MAX_YAW_COMMAND            (800.0f)
-#define BALANCE_PITCH_ZERO_RAD              (0.0f)
-#define BALANCE_WHEEL_OUTPUT_DIRECTION      (1.0f)
+#define BALANCE_PITCH_ZERO_RAD              (-0.10471976f) // legacy -6 degrees
+#define BALANCE_WHEEL_OUTPUT_DIRECTION      (-1.0f)
 
 // Zero-radius rotation is an outer angle loop that commands the existing yaw
 // rate PI. Positive yaw is expected to be counter-clockwise, so clockwise is
@@ -226,6 +241,8 @@
 #define LEG_MAX_ROLL_OFFSET_M              (0.0f)
 #define LEG_MAX_DIFFERENTIAL_Z_OFFSET_M    (0.030f)
 #define LEG_MAX_TARGET_STEP_M              (0.001f)
+#define LEG_FAULT_RECOVERY_X_OFFSET_M      LEG_DEFAULT_X_OFFSET_M
+#define LEG_FAULT_RECOVERY_Z_OFFSET_M      LEG_DEFAULT_Z_OFFSET_M
 
 // Subject-3 bumpy-road control. The official ribs are 20 mm high, 25 mm wide
 // and spaced by about 100 mm. Two separated acceleration shocks are required

@@ -17,7 +17,7 @@ typedef struct
 static const menu_item_t dev_items[] =
 {
     {"Stand / clear fault", MENU_ACTION_DEV_STAND},
-    {"Stop balance", MENU_ACTION_DEV_STOP},
+    {"Emergency stop", MENU_ACTION_DEV_STOP},
     {"Rotate CW 1 turn", MENU_ACTION_DEV_ROTATE_CW},
     {"Rotate CCW 1 turn", MENU_ACTION_DEV_ROTATE_CCW},
     {"Bridge left", MENU_ACTION_DEV_BRIDGE_LEFT},
@@ -116,6 +116,16 @@ static void menu_abort_module_actions(void)
     menu_state.active_action = MENU_ACTION_NONE;
 }
 
+static void menu_emergency_stop(void)
+{
+    // Do not use the normal jump-abort path here: abort commands a leg recovery
+    // move, while emergency stop must freeze scripted motion immediately.
+    control_system_emergency_stop();
+    menu_stop_navigation();
+    menu_state.active_action = MENU_ACTION_NONE;
+    menu_state.hard_stopped = 1U;
+}
+
 static uint8 menu_balance_is_active(void)
 {
     return control_system_get_state()->balance_enabled;
@@ -124,9 +134,10 @@ static uint8 menu_balance_is_active(void)
 static uint8 menu_request_stand(uint8 clear_faults)
 {
     menu_abort_module_actions();
-    if (clear_faults)
+    if (clear_faults && !control_system_recover_faults())
     {
-        control_system_clear_faults();
+        menu_state.hard_stopped = 1U;
+        return 0U;
     }
     menu_state.hard_stopped = 0U;
     return control_system_request_stand();
@@ -163,9 +174,8 @@ uint8 menu_execute_action(menu_action_t action)
             break;
 
         case MENU_ACTION_DEV_STOP:
-            menu_abort_module_actions();
-            accepted = control_system_set_enabled(0U);
-            menu_state.hard_stopped = 1U;
+            menu_emergency_stop();
+            accepted = 1U;
             break;
 
         case MENU_ACTION_DEV_ROTATE_CW:
@@ -417,6 +427,8 @@ static const char *menu_startup_text(control_startup_state_t state)
             return "STANDING     ";
         case CONTROL_STARTUP_FAULT:
             return "FAULT        ";
+        case CONTROL_STARTUP_EMERGENCY_STOP:
+            return "E-STOP       ";
         case CONTROL_STARTUP_DISABLED:
         default:
             return "STOPPED      ";
@@ -480,7 +492,7 @@ static void menu_draw(void)
             ips200_show_string(16U, y, items[index].label);
         }
     }
-    ips200_show_string(0U, 304U, "K1^ K2v K3OK K4BACK");
+    ips200_show_string(0U, 304U, "K1^ K2v K3OK K4BACK/HOLD=STOP");
 #endif
 }
 
@@ -504,7 +516,6 @@ static void menu_move_cursor(int8 direction)
 void menu_return_home(void)
 {
     menu_abort_module_actions();
-    (void)control_system_request_stand();
     menu_state.page = MENU_PAGE_HOME;
     menu_state.cursor = 0U;
     menu_refresh_elapsed_ms = MENU_DISPLAY_REFRESH_MS;
@@ -565,9 +576,7 @@ static void menu_handle_keys(void)
     {
         if (!key4_long_handled)
         {
-            menu_abort_module_actions();
-            (void)control_system_set_enabled(0U);
-            menu_state.hard_stopped = 1U;
+            menu_emergency_stop();
             menu_state.page = MENU_PAGE_HOME;
             menu_state.cursor = 0U;
             menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;

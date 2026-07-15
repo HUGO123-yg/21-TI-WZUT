@@ -19,7 +19,9 @@ typedef enum
     JUMP_RESULT_COMPLETED,
     JUMP_RESULT_ABORTED,
     JUMP_RESULT_NOT_READY,
-    JUMP_RESULT_LEG_ERROR
+    JUMP_RESULT_LEG_ERROR,
+    JUMP_RESULT_EMERGENCY_STOP,
+    JUMP_RESULT_RECOVERED
 } jump_result_t;
 
 typedef struct
@@ -37,6 +39,11 @@ void jump_ctrl_init(void);
 uint8 jump_ctrl_start(void);
 void jump_ctrl_tick_1ms(void);
 uint8 jump_ctrl_abort(void);
+// Emergency stop cancels phase timing without commanding another leg move.
+void jump_ctrl_emergency_stop(void);
+// Recovery returns the legs to their configured safe pose and clears the
+// jump fault only when that actuator command succeeds.
+uint8 jump_ctrl_recover(void);
 uint8 jump_ctrl_is_active(void);
 const jump_state_t *jump_ctrl_get_state(void);
 

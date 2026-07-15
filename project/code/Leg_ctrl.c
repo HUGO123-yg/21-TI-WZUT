@@ -470,6 +470,24 @@ leg_ctrl_status_t leg_ctrl_move_to_offset_immediate(float x_offset_m,
     return leg_ctrl_update_internal(0.0f, 0.0f, 1U);
 }
 
+leg_ctrl_status_t leg_ctrl_recover(void)
+{
+    leg_ctrl_status_t status;
+
+    if (!leg_ready)
+    {
+        status = leg_ctrl_init();
+        if (LEG_CTRL_STATUS_OK != status)
+        {
+            return status;
+        }
+    }
+
+    return leg_ctrl_move_to_offset_immediate(
+        LEG_FAULT_RECOVERY_X_OFFSET_M,
+        LEG_FAULT_RECOVERY_Z_OFFSET_M);
+}
+
 void leg_ctrl_disable_output(void)
 {
     uint8 index;

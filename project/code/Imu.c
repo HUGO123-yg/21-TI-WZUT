@@ -64,7 +64,10 @@ static uint8 imu_config_is_valid(void)
         || (IMU_ACCEL_CORRECTION_MAX_G <= IMU_ACCEL_CORRECTION_MIN_G)
         || (IMU_BODY_X_SOURCE_AXIS >= IMU_AXIS_COUNT)
         || (IMU_BODY_Y_SOURCE_AXIS >= IMU_AXIS_COUNT)
-        || (IMU_BODY_Z_SOURCE_AXIS >= IMU_AXIS_COUNT))
+        || (IMU_BODY_Z_SOURCE_AXIS >= IMU_AXIS_COUNT)
+        || (fabsf(fabsf(IMU_BODY_X_DIRECTION) - 1.0f) > 0.0001f)
+        || (fabsf(fabsf(IMU_BODY_Y_DIRECTION) - 1.0f) > 0.0001f)
+        || (fabsf(fabsf(IMU_BODY_Z_DIRECTION) - 1.0f) > 0.0001f))
     {
         return 0;
     }

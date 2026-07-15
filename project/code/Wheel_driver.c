@@ -19,9 +19,26 @@ typedef struct
     volatile uint32 valid_frame_count;
     volatile uint32 invalid_frame_count;
     volatile uint8 output_stop_locked;
+    uint8 config_valid;
 } wheel_driver_state_t;
 
 static wheel_driver_state_t wheel_state;
+
+static uint8 wheel_direction_is_valid(int32 direction)
+{
+    return (uint8)((1 == direction) || (-1 == direction));
+}
+
+uint8 wheel_driver_config_is_valid(void)
+{
+    return (uint8)(wheel_direction_is_valid(WHEEL_LEFT_COMMAND_DIRECTION)
+        && wheel_direction_is_valid(WHEEL_RIGHT_COMMAND_DIRECTION)
+        && wheel_direction_is_valid(WHEEL_LEFT_SPEED_DIRECTION)
+        && wheel_direction_is_valid(WHEEL_RIGHT_SPEED_DIRECTION)
+        && (WHEEL_DRIVER_BAUDRATE > 0U)
+        && (WHEEL_MAX_COMMAND > 0)
+        && (WHEEL_DIAMETER_M > 0.0f));
+}
 
 static int16 wheel_limit_command(int32 command)
 {
@@ -40,6 +57,11 @@ static void wheel_send_frame(uint8 command, int16 left_value, int16 right_value)
 {
     uint8 frame[WHEEL_FRAME_LENGTH];
     uint8 index;
+
+    if (!wheel_state.config_valid)
+    {
+        return;
+    }
 
     frame[0] = WHEEL_FRAME_HEADER;
     frame[1] = command;
@@ -76,6 +98,12 @@ static uint8 wheel_frame_is_valid(const uint8 *frame)
 void wheel_driver_init(void)
 {
     memset(&wheel_state, 0, sizeof(wheel_state));
+    wheel_state.config_valid = wheel_driver_config_is_valid();
+    if (!wheel_state.config_valid)
+    {
+        wheel_state.output_stop_locked = 1U;
+        return;
+    }
     uart_init(WHEEL_DRIVER_UART,
               WHEEL_DRIVER_BAUDRATE,
               WHEEL_DRIVER_TX_PIN,

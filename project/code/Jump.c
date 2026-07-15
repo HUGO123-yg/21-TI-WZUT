@@ -113,9 +113,7 @@ void jump_ctrl_tick_1ms(void)
 
 uint8 jump_ctrl_abort(void)
 {
-    jump_state.last_leg_status = leg_ctrl_move_to_offset_immediate(
-        JUMP_LEG_X_OFFSET_M,
-        JUMP_RETRACT_Z_OFFSET_M);
+    jump_state.last_leg_status = leg_ctrl_recover();
     jump_state.active = 0U;
     jump_state.phase = JUMP_PHASE_IDLE;
     if (LEG_CTRL_STATUS_OK != jump_state.last_leg_status)
@@ -124,6 +122,35 @@ uint8 jump_ctrl_abort(void)
         return 0U;
     }
     jump_state.result = JUMP_RESULT_ABORTED;
+    return 1U;
+}
+
+void jump_ctrl_emergency_stop(void)
+{
+    if (!jump_state.active)
+    {
+        return;
+    }
+
+    jump_state.active = 0U;
+    jump_state.phase = JUMP_PHASE_IDLE;
+    jump_state.result = JUMP_RESULT_EMERGENCY_STOP;
+}
+
+uint8 jump_ctrl_recover(void)
+{
+    jump_state.active = 0U;
+    jump_state.phase = JUMP_PHASE_IDLE;
+    jump_state.last_leg_status = leg_ctrl_recover();
+    if (LEG_CTRL_STATUS_OK != jump_state.last_leg_status)
+    {
+        jump_state.result = JUMP_RESULT_LEG_ERROR;
+        return 0U;
+    }
+
+    jump_state.phase_elapsed_ms = 0U;
+    jump_state.total_elapsed_ms = 0U;
+    jump_state.result = JUMP_RESULT_RECOVERED;
     return 1U;
 }
 

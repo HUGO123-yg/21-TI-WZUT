@@ -63,6 +63,9 @@ leg_ctrl_status_t leg_ctrl_update(float roll_rad,
 // Intended for fixed-time actions such as jumping, not normal balance control.
 leg_ctrl_status_t leg_ctrl_move_to_offset_immediate(float x_offset_m,
                                                     float z_offset_m);
+// Reinitializes disabled outputs when possible and returns both legs to the
+// configured fault-recovery pose. A non-OK result keeps the caller stopped.
+leg_ctrl_status_t leg_ctrl_recover(void);
 void leg_ctrl_disable_output(void);
 uint8 leg_ctrl_is_ready(void);
 const leg_ctrl_state_t *leg_ctrl_get_state(void);

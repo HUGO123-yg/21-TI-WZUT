@@ -11,7 +11,8 @@ typedef enum
     BALANCE_FAULT_PITCH_LIMIT = 1U << 0,
     BALANCE_FAULT_ROLL_LIMIT = 1U << 1,
     BALANCE_FAULT_IMU = 1U << 2,
-    BALANCE_FAULT_WHEEL_FEEDBACK = 1U << 3
+    BALANCE_FAULT_WHEEL_FEEDBACK = 1U << 3,
+    BALANCE_FAULT_CONFIG = 1U << 4
 } balance_fault_t;
 
 typedef struct
@@ -42,6 +43,8 @@ typedef struct
 } balance_state_t;
 
 void balance_ctrl_init(void);
+// Checks limits and the configured small-signal pitch/rate response signs.
+uint8 balance_ctrl_config_is_valid(void);
 void balance_ctrl_set_command(const balance_command_t *command);
 const balance_command_t *balance_ctrl_get_command(void);
 uint8 balance_ctrl_set_enabled(uint8 enabled);

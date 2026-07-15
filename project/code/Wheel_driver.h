@@ -12,6 +12,9 @@ typedef struct
 } wheel_feedback_t;
 
 void wheel_driver_init(void);
+// Verifies that all logical-to-hardware direction values are exactly +/-1 and
+// that the basic driver limits are usable. Invalid configuration locks output.
+uint8 wheel_driver_config_is_valid(void);
 void wheel_driver_uart_isr(void);
 void wheel_driver_set_command(int16 left_command, int16 right_command);
 void wheel_driver_stop(void);

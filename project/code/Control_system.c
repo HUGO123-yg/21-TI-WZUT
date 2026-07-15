@@ -38,6 +38,7 @@ static uint8 control_system_try_start_stand(void)
         return 0U;
     }
     if ((CONTROL_STATUS_OK != control_state.status)
+        || (CONTROL_FAULT_NONE != control_state.fault_flags)
         || wheel_driver_is_stop_locked()
         || jump_ctrl_is_active()
         || rotation_ctrl_is_active())
@@ -58,8 +59,9 @@ static uint8 control_system_try_start_stand(void)
 
     imu = imu_get_data();
     if ((0 == imu)
-        || (fabsf(imu->pitch_deg * CONTROL_DEG_TO_RAD)
-            > CONTROL_STAND_ARM_MAX_PITCH_RAD)
+        || (fabsf(imu->pitch_deg * CONTROL_DEG_TO_RAD
+                  - BALANCE_PITCH_ZERO_RAD)
+            > CONTROL_STAND_ARM_MAX_PITCH_ERROR_RAD)
         || (fabsf(imu->roll_deg * CONTROL_DEG_TO_RAD)
             > CONTROL_STAND_ARM_MAX_ROLL_RAD))
     {
@@ -108,29 +110,107 @@ static void control_system_sync_rotation_state(void)
     control_state.rotation_active = rotation_ctrl_is_active();
 }
 
+static void control_system_cancel_active_actions(void)
+{
+    jump_ctrl_emergency_stop();
+    control_state.jump_active = jump_ctrl_is_active();
+    control_state.last_jump_result =
+        (uint32)jump_ctrl_get_state()->result;
+    (void)rotation_ctrl_abort();
+    control_system_sync_rotation_state();
+    control_state.last_bridge_status =
+        (uint32)bridge_ctrl_set_enabled(0U);
+    control_state.last_bumpy_status =
+        (uint32)bumpy_ctrl_set_enabled(0U);
+    control_state.bridge_active = 0U;
+    control_state.bumpy_active = 0U;
+    (void)leg_ctrl_set_differential_z_offset(0.0f);
+}
+
+static void control_system_stop_navigation_action(void)
+{
+    const navigation_state_t *navigation;
+
+    navigation = navigation_get_state();
+    if (NAVIGATION_MODE_RECORDING == navigation->mode)
+    {
+        (void)navigation_stop_recording();
+    }
+    else if ((NAVIGATION_MODE_REPLAYING == navigation->mode)
+             || (NAVIGATION_MODE_REPLAY_COMPLETE == navigation->mode))
+    {
+        navigation_stop_replay();
+    }
+}
+
+static void control_system_latch_fault(control_status_t status,
+                                       uint32 fault_flags)
+{
+    // Lock the driver before touching any higher-level state so an interrupt or
+    // main-loop race cannot emit a non-zero command during fault handling.
+    wheel_driver_set_stop_lock(1U);
+    control_state.fault_flags |= fault_flags;
+    control_state.stand_request_pending = 0U;
+    control_state.balance_enabled = 0U;
+    restore_balance_after_jump = 0U;
+    (void)balance_ctrl_set_enabled(0U);
+    control_system_cancel_active_actions();
+    control_system_set_zero_command();
+    wheel_driver_stop();
+
+    if (0U != (control_state.fault_flags
+               & (uint32)CONTROL_FAULT_EMERGENCY_STOP))
+    {
+        control_state.status = CONTROL_STATUS_EMERGENCY_STOP;
+        control_state.startup_state = CONTROL_STARTUP_EMERGENCY_STOP;
+    }
+    else
+    {
+        control_state.status = status;
+        control_state.startup_state = CONTROL_STARTUP_FAULT;
+    }
+}
+
 static void control_system_finish_jump(void)
 {
     const jump_state_t *jump;
+    uint8 request_stand;
+    uint32 fault_flags;
 
     jump = jump_ctrl_get_state();
     control_state.jump_active = 0U;
     control_state.last_jump_result = (uint32)jump->result;
+    control_state.last_leg_status = (uint32)jump->last_leg_status;
     wheel_driver_stop();
 
     if (JUMP_RESULT_COMPLETED == jump->result)
     {
+        request_stand = restore_balance_after_jump;
+        restore_balance_after_jump = 0U;
         wheel_driver_set_stop_lock(0U);
-        if (restore_balance_after_jump
-            && !balance_ctrl_set_enabled(1U))
+        control_state.startup_state = CONTROL_STARTUP_DISABLED;
+        if (request_stand && !control_system_request_stand())
         {
             control_state.status = CONTROL_STATUS_NOT_READY;
         }
-        restore_balance_after_jump = 0U;
         return;
     }
 
-    control_state.status = CONTROL_STATUS_JUMP_ERROR;
-    control_state.jump_error_count++;
+    fault_flags = (uint32)CONTROL_FAULT_JUMP;
+    if (JUMP_RESULT_LEG_ERROR == jump->result)
+    {
+        fault_flags |= (uint32)CONTROL_FAULT_LEG;
+        if (0U == (control_state.fault_flags
+                   & (uint32)CONTROL_FAULT_LEG))
+        {
+            control_state.leg_error_count++;
+        }
+    }
+    if (0U == (control_state.fault_flags & (uint32)CONTROL_FAULT_JUMP))
+    {
+        control_state.jump_error_count++;
+    }
+    control_system_latch_fault(CONTROL_STATUS_JUMP_ERROR, fault_flags);
 }
 
 control_status_t control_system_init(void)
@@ -141,6 +221,7 @@ control_status_t control_system_init(void)
     bridge_ctrl_status_t bridge_status;
     bumpy_ctrl_status_t bumpy_status;
     rotation_ctrl_status_t rotation_status;
+    uint8 leg_init_failed;
 
     memset(&control_state, 0, sizeof(control_state));
     control_state.startup_state = CONTROL_STARTUP_DISABLED;
@@ -148,14 +229,19 @@ control_status_t control_system_init(void)
     fast_divider = 0U;
     fast_step_count = 0U;
     restore_balance_after_jump = 0U;
+    leg_init_failed = 0U;
     memset(&requested_command, 0, sizeof(requested_command));
     balance_ctrl_init();
+    control_state.balance_config_valid = balance_ctrl_config_is_valid();
     wheel_driver_init();
+    control_state.wheel_config_valid = wheel_driver_config_is_valid();
     leg_status = leg_ctrl_init();
+    control_state.last_leg_status = (uint32)leg_status;
     if ((LEG_CTRL_STATUS_OK != leg_status)
         && (LEG_CTRL_STATUS_DISABLED != leg_status))
     {
         control_state.leg_error_count++;
+        leg_init_failed = 1U;
     }
     bridge_status = bridge_ctrl_init();
     bumpy_status = bumpy_ctrl_init();
@@ -180,11 +266,12 @@ control_status_t control_system_init(void)
     control_state.last_imu_status = (uint32)imu_status;
     if (IMU_STATUS_OK != imu_status)
     {
-        control_state.status = CONTROL_STATUS_IMU_ERROR;
-        control_state.startup_state = CONTROL_STARTUP_FAULT;
         control_state.imu_error_count++;
         balance_ctrl_force_fault(BALANCE_FAULT_IMU);
-        wheel_driver_stop();
+        control_system_latch_fault(
+            CONTROL_STATUS_IMU_ERROR,
+            (uint32)CONTROL_FAULT_IMU
+            | (uint32)CONTROL_FAULT_BALANCE);
         return control_state.status;
     }
 
@@ -193,6 +280,31 @@ control_status_t control_system_init(void)
     if (NAVIGATION_STATUS_OK != navigation_status)
     {
         control_state.navigation_error_count++;
+    }
+
+    if (leg_init_failed)
+    {
+        control_system_latch_fault(CONTROL_STATUS_LEG_ERROR,
+                                   (uint32)CONTROL_FAULT_LEG);
+        return control_state.status;
+    }
+
+    if (!control_state.wheel_config_valid)
+    {
+        balance_ctrl_force_fault(BALANCE_FAULT_WHEEL_FEEDBACK);
+        control_system_latch_fault(
+            CONTROL_STATUS_WHEEL_CONFIG_ERROR,
+            (uint32)CONTROL_FAULT_WHEEL
+            | (uint32)CONTROL_FAULT_BALANCE);
+        return control_state.status;
+    }
+
+    if (!control_state.balance_config_valid)
+    {
+        control_system_latch_fault(
+            CONTROL_STATUS_BALANCE_CONFIG_ERROR,
+            (uint32)CONTROL_FAULT_BALANCE);
+        return control_state.status;
     }
 
     control_state.status = CONTROL_STATUS_OK;
@@ -227,6 +339,12 @@ void control_system_tick_1ms(void)
     uint8 wheel_feedback_valid;
 
     control_state.scheduler_tick_ms++;
+    if (wheel_driver_is_stop_locked())
+    {
+        // The lock rejects non-zero commands; refreshing zero duty also handles
+        // a wheel controller reset that occurred after the original stop frame.
+        wheel_driver_stop();
+    }
     if (jump_ctrl_is_active())
     {
         // Redundant with the driver lock by design: refresh zero duty every
@@ -246,18 +364,16 @@ void control_system_tick_1ms(void)
     control_state.last_imu_status = (uint32)imu_status;
     if (IMU_STATUS_OK != imu_status)
     {
-        if (rotation_ctrl_is_active())
+        if (0U == (control_state.fault_flags
+                   & (uint32)CONTROL_FAULT_IMU))
         {
-            (void)rotation_ctrl_abort();
-            control_system_sync_rotation_state();
+            control_state.imu_error_count++;
         }
-        control_state.status = CONTROL_STATUS_IMU_ERROR;
-        control_state.stand_request_pending = 0U;
-        control_state.balance_enabled = 0U;
-        control_state.startup_state = CONTROL_STARTUP_FAULT;
-        control_state.imu_error_count++;
         balance_ctrl_force_fault(BALANCE_FAULT_IMU);
-        wheel_driver_stop();
+        control_system_latch_fault(
+            CONTROL_STATUS_IMU_ERROR,
+            (uint32)CONTROL_FAULT_IMU
+            | (uint32)CONTROL_FAULT_BALANCE);
         return;
     }
 
@@ -451,8 +567,9 @@ void control_system_tick_1ms(void)
     control_state.balance_enabled = balance->enabled;
     if (BALANCE_FAULT_NONE != balance->fault_flags)
     {
-        control_state.stand_request_pending = 0U;
-        control_state.startup_state = CONTROL_STARTUP_FAULT;
+        control_system_latch_fault(CONTROL_STATUS_NOT_READY,
+                                   (uint32)CONTROL_FAULT_BALANCE);
+        return;
     }
     else if (balance->enabled)
     {
@@ -473,10 +590,12 @@ void control_system_tick_1ms(void)
         leg_status = leg_ctrl_set_target_offset(
             command->target_leg_x_offset_m,
             command->target_leg_z_offset_m);
+        control_state.last_leg_status = (uint32)leg_status;
         if (LEG_CTRL_STATUS_OK == leg_status)
         {
             leg_status = leg_ctrl_set_differential_z_offset(
                 bridge->differential_leg_offset_m);
+            control_state.last_leg_status = (uint32)leg_status;
         }
         if (balance->enabled && leg_ctrl_is_ready())
         {
@@ -485,10 +604,15 @@ void control_system_tick_1ms(void)
                 leg_status = leg_ctrl_update(
                     imu->roll_deg * 0.017453292519943295f,
                     imu->gyro_dps[0] * 0.017453292519943295f);
+                control_state.last_leg_status = (uint32)leg_status;
             }
             if (LEG_CTRL_STATUS_OK != leg_status)
             {
-                control_state.leg_error_count++;
+                if (0U == (control_state.fault_flags
+                           & (uint32)CONTROL_FAULT_LEG))
+                {
+                    control_state.leg_error_count++;
+                }
                 if (bridge_ctrl_is_active())
                 {
                     (void)bridge_ctrl_abort();
@@ -501,6 +625,10 @@ void control_system_tick_1ms(void)
                     control_state.bumpy_active = 0U;
                     control_state.bumpy_error_count++;
                 }
+                control_system_latch_fault(
+                    CONTROL_STATUS_LEG_ERROR,
+                    (uint32)CONTROL_FAULT_LEG);
+                return;
             }
         }
     }
@@ -520,6 +648,7 @@ void control_system_set_command(const balance_command_t *command)
 uint8 control_system_request_stand(void)
 {
     if ((CONTROL_STATUS_OK != control_state.status)
+        || (CONTROL_FAULT_NONE != control_state.fault_flags)
         || wheel_driver_is_stop_locked()
         || jump_ctrl_is_active())
     {
@@ -554,23 +683,151 @@ uint8 control_system_set_enabled(uint8 enabled)
 {
     if (!enabled)
     {
-        (void)rotation_ctrl_abort();
-        control_system_sync_rotation_state();
-        control_state.last_bridge_status =
-            (uint32)bridge_ctrl_set_enabled(0U);
-        control_state.last_bumpy_status =
-            (uint32)bumpy_ctrl_set_enabled(0U);
-        (void)leg_ctrl_set_differential_z_offset(0.0f);
-        control_state.bridge_active = 0U;
-        control_state.bumpy_active = 0U;
-        control_state.stand_request_pending = 0U;
-        control_state.balance_enabled = 0U;
-        control_state.startup_state = CONTROL_STARTUP_DISABLED;
-        (void)balance_ctrl_set_enabled(0U);
-        wheel_driver_stop();
+        control_system_emergency_stop();
         return 1U;
     }
     return control_system_request_stand();
+}
+
+void control_system_emergency_stop(void)
+{
+    if (0U == (control_state.fault_flags
+               & (uint32)CONTROL_FAULT_EMERGENCY_STOP))
+    {
+        control_state.emergency_stop_count++;
+    }
+    control_system_latch_fault(
+        CONTROL_STATUS_EMERGENCY_STOP,
+        (uint32)CONTROL_FAULT_EMERGENCY_STOP);
+
+#if CONTROL_ESTOP_DISABLE_LEG_OUTPUT
+    leg_ctrl_disable_output();
+    control_state.last_leg_status =
+        (uint32)leg_ctrl_get_state()->status;
+#endif
+}
+
+uint8 control_system_recover_faults(void)
+{
+    const imu_data_t *imu;
+    const jump_state_t *jump;
+    const balance_state_t *balance;
+    leg_ctrl_status_t leg_status;
+    uint8 recover_jump;
+
+    control_state.recovery_attempt_count++;
+    wheel_driver_set_stop_lock(1U);
+    (void)balance_ctrl_set_enabled(0U);
+    control_system_cancel_active_actions();
+    control_system_stop_navigation_action();
+    control_system_set_zero_command();
+    wheel_driver_stop();
+
+    control_state.wheel_config_valid = wheel_driver_config_is_valid();
+    if (!control_state.wheel_config_valid)
+    {
+        control_state.recovery_failure_count++;
+        balance_ctrl_force_fault(BALANCE_FAULT_WHEEL_FEEDBACK);
+        control_system_latch_fault(
+            CONTROL_STATUS_WHEEL_CONFIG_ERROR,
+            (uint32)CONTROL_FAULT_WHEEL
+            | (uint32)CONTROL_FAULT_BALANCE);
+        return 0U;
+    }
+    control_state.balance_config_valid = balance_ctrl_config_is_valid();
+    if (!control_state.balance_config_valid)
+    {
+        control_state.recovery_failure_count++;
+        control_system_latch_fault(
+            CONTROL_STATUS_BALANCE_CONFIG_ERROR,
+            (uint32)CONTROL_FAULT_BALANCE);
+        return 0U;
+    }
+
+    imu = imu_get_data();
+    if (!imu_is_initialized()
+        || (IMU_STATUS_OK != (imu_status_t)control_state.last_imu_status)
+        || (0 == imu)
+        || (imu->pitch_deg != imu->pitch_deg)
+        || (imu->roll_deg != imu->roll_deg))
+    {
+        control_state.recovery_failure_count++;
+        control_system_latch_fault(
+            CONTROL_STATUS_IMU_ERROR,
+            (uint32)CONTROL_FAULT_IMU
+            | (uint32)CONTROL_FAULT_BALANCE);
+        return 0U;
+    }
+    if ((fabsf(imu->pitch_deg * CONTROL_DEG_TO_RAD
+               - BALANCE_PITCH_ZERO_RAD)
+            > CONTROL_FAULT_RECOVERY_MAX_PITCH_ERROR_RAD)
+        || (fabsf(imu->roll_deg * CONTROL_DEG_TO_RAD)
+            > CONTROL_FAULT_RECOVERY_MAX_ROLL_RAD))
+    {
+        control_state.recovery_failure_count++;
+        control_system_latch_fault(CONTROL_STATUS_NOT_READY,
+                                   (uint32)CONTROL_FAULT_BALANCE);
+        return 0U;
+    }
+
+    jump = jump_ctrl_get_state();
+    recover_jump = (uint8)((0U != (control_state.fault_flags
+                                   & (uint32)CONTROL_FAULT_JUMP))
+        || (JUMP_RESULT_LEG_ERROR == jump->result)
+        || (JUMP_RESULT_EMERGENCY_STOP == jump->result));
+    if (recover_jump)
+    {
+        if (!jump_ctrl_recover())
+        {
+            control_state.last_jump_result =
+                (uint32)jump_ctrl_get_state()->result;
+            control_state.last_leg_status =
+                (uint32)jump_ctrl_get_state()->last_leg_status;
+            control_state.recovery_failure_count++;
+            control_system_latch_fault(
+                CONTROL_STATUS_JUMP_ERROR,
+                (uint32)CONTROL_FAULT_JUMP
+                | (uint32)CONTROL_FAULT_LEG);
+            return 0U;
+        }
+        control_state.last_jump_result =
+            (uint32)jump_ctrl_get_state()->result;
+        leg_status = jump_ctrl_get_state()->last_leg_status;
+    }
+    else
+    {
+        leg_status = leg_ctrl_recover();
+    }
+    control_state.last_leg_status = (uint32)leg_status;
+    if ((LEG_CTRL_STATUS_OK != leg_status)
+        && !((LEG_CTRL_STATUS_DISABLED == leg_status)
+             && !LEG_CONTROL_ENABLE))
+    {
+        control_state.recovery_failure_count++;
+        control_system_latch_fault(CONTROL_STATUS_LEG_ERROR,
+                                   (uint32)CONTROL_FAULT_LEG);
+        return 0U;
+    }
+
+    balance_ctrl_clear_faults();
+    balance = balance_ctrl_get_state();
+    if (BALANCE_FAULT_NONE != balance->fault_flags)
+    {
+        control_state.recovery_failure_count++;
+        control_system_latch_fault(CONTROL_STATUS_NOT_READY,
+                                   (uint32)CONTROL_FAULT_BALANCE);
+        return 0U;
+    }
+
+    control_state.fault_flags = CONTROL_FAULT_NONE;
+    control_state.status = CONTROL_STATUS_OK;
+    control_state.startup_state = CONTROL_STARTUP_DISABLED;
+    control_state.stand_request_pending = 0U;
+    control_state.balance_enabled = 0U;
+    restore_balance_after_jump = 0U;
+    wheel_driver_stop();
+    wheel_driver_set_stop_lock(0U);
+    return 1U;
 }
 
 uint8 control_system_start_jump(void)
@@ -598,11 +855,27 @@ uint8 control_system_start_jump(void)
     {
         control_state.last_jump_result =
             (uint32)jump_ctrl_get_state()->result;
+        control_state.last_leg_status =
+            (uint32)jump_ctrl_get_state()->last_leg_status;
         wheel_driver_stop();
+        if (JUMP_RESULT_LEG_ERROR == jump_ctrl_get_state()->result)
+        {
+            if (0U == (control_state.fault_flags
+                       & (uint32)CONTROL_FAULT_JUMP))
+            {
+                control_state.jump_error_count++;
+                control_state.leg_error_count++;
+            }
+            control_system_latch_fault(
+                CONTROL_STATUS_JUMP_ERROR,
+                (uint32)CONTROL_FAULT_JUMP
+                | (uint32)CONTROL_FAULT_LEG);
+            return 0U;
+        }
         wheel_driver_set_stop_lock(0U);
         if (restore_balance_after_jump)
         {
-            (void)balance_ctrl_set_enabled(1U);
+            (void)control_system_request_stand();
         }
         restore_balance_after_jump = 0U;
         return 0U;
@@ -616,6 +889,7 @@ uint8 control_system_start_jump(void)
 uint8 control_system_abort_jump(void)
 {
     uint8 recovered;
+    uint8 request_stand;
 
     wheel_driver_set_stop_lock(1U);
     (void)balance_ctrl_set_enabled(0U);
@@ -623,28 +897,37 @@ uint8 control_system_abort_jump(void)
     control_state.jump_active = 0U;
     control_state.last_jump_result =
         (uint32)jump_ctrl_get_state()->result;
+    control_state.last_leg_status =
+        (uint32)jump_ctrl_get_state()->last_leg_status;
     wheel_driver_stop();
     if (!recovered)
     {
-        control_state.status = CONTROL_STATUS_JUMP_ERROR;
-        control_state.jump_error_count++;
+        if (0U == (control_state.fault_flags
+                   & (uint32)CONTROL_FAULT_JUMP))
+        {
+            control_state.jump_error_count++;
+            control_state.leg_error_count++;
+        }
+        control_system_latch_fault(
+            CONTROL_STATUS_JUMP_ERROR,
+            (uint32)CONTROL_FAULT_JUMP
+            | (uint32)CONTROL_FAULT_LEG);
         return 0U;
     }
 
-    wheel_driver_set_stop_lock(0U);
-    if (CONTROL_STATUS_JUMP_ERROR == control_state.status
-        && imu_is_initialized())
+    if (CONTROL_FAULT_NONE != control_state.fault_flags)
     {
-        control_state.status = CONTROL_STATUS_OK;
-    }
-    if (restore_balance_after_jump
-        && !balance_ctrl_set_enabled(1U))
-    {
-        control_state.status = CONTROL_STATUS_NOT_READY;
-        restore_balance_after_jump = 0U;
         return 0U;
     }
+    request_stand = restore_balance_after_jump;
     restore_balance_after_jump = 0U;
+    wheel_driver_set_stop_lock(0U);
+    control_state.startup_state = CONTROL_STARTUP_DISABLED;
+    if (request_stand && !control_system_request_stand())
+    {
+        control_state.status = CONTROL_STATUS_NOT_READY;
+        return 0U;
+    }
     return 1U;
 }
 
@@ -828,18 +1111,6 @@ uint8 control_system_abort_bumpy(void)
     control_state.bumpy_active = 0U;
     return (uint8)((BUMPY_CTRL_STATUS_OK == status)
                    || (BUMPY_CTRL_STATUS_DISABLED == status));
-}
-
-void control_system_clear_faults(void)
-{
-    (void)control_system_abort_rotation();
-    (void)control_system_abort_bridge();
-    (void)control_system_abort_bumpy();
-    balance_ctrl_clear_faults();
-    if (imu_is_initialized())
-    {
-        control_state.status = CONTROL_STATUS_OK;
-    }
 }
 
 const control_system_state_t *control_system_get_state(void)
