@@ -168,6 +168,7 @@ bridge_ctrl_status_t bridge_ctrl_init(void)
     memset(&bridge_state, 0, sizeof(bridge_state));
     bridge_reset_runtime();
     bridge_state.status = BRIDGE_CTRL_STATUS_DISABLED;
+    bridge_state.result = BRIDGE_RESULT_IDLE;
     if (!BRIDGE_CONTROL_ENABLE)
     {
         return bridge_state.status;
@@ -177,6 +178,12 @@ bridge_ctrl_status_t bridge_ctrl_init(void)
 
 bridge_ctrl_status_t bridge_ctrl_set_enabled(uint8 enabled)
 {
+    if (!enabled
+        && (BRIDGE_PHASE_IDLE != bridge_state.phase)
+        && (BRIDGE_RESULT_FAULT != bridge_state.result))
+    {
+        bridge_state.result = BRIDGE_RESULT_ABORTED;
+    }
     bridge_reset_runtime();
     if (!enabled)
     {
@@ -188,11 +195,13 @@ bridge_ctrl_status_t bridge_ctrl_set_enabled(uint8 enabled)
     {
         bridge_state.enabled = 0U;
         bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_CONFIG;
+        bridge_state.result = BRIDGE_RESULT_FAULT;
         return bridge_state.status;
     }
 
     bridge_state.enabled = 1U;
     bridge_state.status = BRIDGE_CTRL_STATUS_OK;
+    bridge_state.result = BRIDGE_RESULT_IDLE;
     return bridge_state.status;
 }
 
@@ -207,12 +216,14 @@ bridge_ctrl_status_t bridge_ctrl_force_enter(int8 roll_sign,
         || !bridge_float_is_finite(traveled_distance_m))
     {
         bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_ARGUMENT;
+        bridge_state.result = BRIDGE_RESULT_FAULT;
         return bridge_state.status;
     }
 
     bridge_reset_runtime();
     bridge_state.enabled = 1U;
     bridge_state.status = BRIDGE_CTRL_STATUS_OK;
+    bridge_state.result = BRIDGE_RESULT_RUNNING;
     bridge_state.roll_sign = roll_sign;
     bridge_state.forced_entry = 1U;
     bridge_state.detect_count = BRIDGE_DETECT_STEPS;
@@ -229,6 +240,11 @@ bridge_ctrl_status_t bridge_ctrl_abort(void)
     uint8 was_enabled;
 
     was_enabled = bridge_state.enabled;
+    if ((BRIDGE_PHASE_IDLE != bridge_state.phase)
+        && (BRIDGE_RESULT_FAULT != bridge_state.result))
+    {
+        bridge_state.result = BRIDGE_RESULT_ABORTED;
+    }
     bridge_reset_runtime();
     bridge_state.enabled = was_enabled;
     bridge_state.status = was_enabled
@@ -250,6 +266,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
     if ((0 == requested) || (0 == shaped))
     {
         bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_ARGUMENT;
+        bridge_state.result = BRIDGE_RESULT_FAULT;
         return bridge_state.status;
     }
     *shaped = *requested;
@@ -264,6 +281,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
         || !bridge_float_is_finite(imu->gyro_dps[0]))
     {
         bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_ARGUMENT;
+        bridge_state.result = BRIDGE_RESULT_FAULT;
         return bridge_state.status;
     }
 
@@ -277,6 +295,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
             if (BRIDGE_AUTO_DETECT_ENABLE
                 && (fabsf(roll_rad) >= BRIDGE_ROLL_DETECT_RAD))
             {
+                bridge_state.result = BRIDGE_RESULT_RUNNING;
                 bridge_state.roll_sign = current_roll_sign;
                 bridge_state.detect_count = 1U;
                 bridge_latch_feedforward(roll_rad);
@@ -291,6 +310,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
                 bridge_reset_runtime();
                 bridge_state.enabled = 1U;
                 bridge_state.status = BRIDGE_CTRL_STATUS_OK;
+                bridge_state.result = BRIDGE_RESULT_IDLE;
             }
             else
             {
@@ -327,11 +347,15 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
             bridge_latch_feedforward(roll_rad);
             bridge_state.crossing_distance_m = fabsf(
                 traveled_distance_m - bridge_state.entry_distance_m);
-            if ((bridge_state.crossing_distance_m
-                 >= BRIDGE_CROSSING_DISTANCE_M)
-                || (bridge_state.phase_elapsed_steps
-                    >= BRIDGE_CROSSING_TIMEOUT_STEPS))
+            if (bridge_state.crossing_distance_m
+                >= BRIDGE_CROSSING_DISTANCE_M)
             {
+                bridge_enter_phase(BRIDGE_PHASE_EXITING);
+            }
+            else if (bridge_state.phase_elapsed_steps
+                     >= BRIDGE_CROSSING_TIMEOUT_STEPS)
+            {
+                bridge_state.result = BRIDGE_RESULT_TIMEOUT;
                 bridge_enter_phase(BRIDGE_PHASE_EXITING);
             }
             break;
@@ -355,12 +379,22 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
             {
                 bridge_state.recover_count = 0U;
             }
-            if (((bridge_state.recover_count >= BRIDGE_RECOVER_STEPS)
-                 && (fabsf(bridge_state.differential_leg_offset_m)
-                     <= BRIDGE_MAX_DIFFERENTIAL_STEP_M))
-                || (bridge_state.phase_elapsed_steps
-                    >= BRIDGE_RECOVER_TIMEOUT_STEPS))
+            if ((bridge_state.recover_count >= BRIDGE_RECOVER_STEPS)
+                && (fabsf(bridge_state.differential_leg_offset_m)
+                    <= BRIDGE_MAX_DIFFERENTIAL_STEP_M))
             {
+                if (BRIDGE_RESULT_RUNNING == bridge_state.result)
+                {
+                    bridge_state.result = BRIDGE_RESULT_COMPLETED;
+                }
+                bridge_reset_runtime();
+                bridge_state.enabled = 1U;
+                bridge_state.status = BRIDGE_CTRL_STATUS_OK;
+            }
+            else if (bridge_state.phase_elapsed_steps
+                     >= BRIDGE_RECOVER_TIMEOUT_STEPS)
+            {
+                bridge_state.result = BRIDGE_RESULT_TIMEOUT;
                 bridge_reset_runtime();
                 bridge_state.enabled = 1U;
                 bridge_state.status = BRIDGE_CTRL_STATUS_OK;
@@ -369,6 +403,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
 
         default:
             bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_CONFIG;
+            bridge_state.result = BRIDGE_RESULT_FAULT;
             return bridge_state.status;
     }
 

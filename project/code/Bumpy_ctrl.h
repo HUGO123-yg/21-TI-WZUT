@@ -21,9 +21,20 @@ typedef enum
     BUMPY_PHASE_RECOVERING
 } bumpy_phase_t;
 
+typedef enum
+{
+    BUMPY_RESULT_IDLE = 0,
+    BUMPY_RESULT_RUNNING,
+    BUMPY_RESULT_COMPLETED,
+    BUMPY_RESULT_TIMEOUT,
+    BUMPY_RESULT_FAULT,
+    BUMPY_RESULT_ABORTED
+} bumpy_ctrl_result_t;
+
 typedef struct
 {
     bumpy_ctrl_status_t status;
+    bumpy_ctrl_result_t result;
     bumpy_phase_t phase;
     uint32 phase_elapsed_steps;
     uint32 impact_count;

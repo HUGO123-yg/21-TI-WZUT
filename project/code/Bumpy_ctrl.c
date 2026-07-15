@@ -131,6 +131,7 @@ static void bumpy_begin_crossing(float traveled_distance_m,
     bumpy_state.crossing_distance_m = 0.0f;
     bumpy_state.forced_entry = forced_entry;
     bumpy_state.recover_stable_steps = 0U;
+    bumpy_state.result = BUMPY_RESULT_RUNNING;
     pid_reset(&bumpy_speed_pid);
     bumpy_enter_phase(BUMPY_PHASE_CROSSING);
 }
@@ -213,6 +214,7 @@ bumpy_ctrl_status_t bumpy_ctrl_init(void)
              BUMPY_MAX_SPEED_LEG_X_OFFSET_M);
     bumpy_reset_runtime();
     bumpy_state.status = BUMPY_CTRL_STATUS_DISABLED;
+    bumpy_state.result = BUMPY_RESULT_IDLE;
     if (!BUMPY_CONTROL_ENABLE)
     {
         return bumpy_state.status;
@@ -222,6 +224,12 @@ bumpy_ctrl_status_t bumpy_ctrl_init(void)
 
 bumpy_ctrl_status_t bumpy_ctrl_set_enabled(uint8 enabled)
 {
+    if (!enabled
+        && (BUMPY_PHASE_IDLE != bumpy_state.phase)
+        && (BUMPY_RESULT_FAULT != bumpy_state.result))
+    {
+        bumpy_state.result = BUMPY_RESULT_ABORTED;
+    }
     bumpy_reset_runtime();
     if (!enabled)
     {
@@ -233,11 +241,13 @@ bumpy_ctrl_status_t bumpy_ctrl_set_enabled(uint8 enabled)
     {
         bumpy_state.enabled = 0U;
         bumpy_state.status = BUMPY_CTRL_STATUS_INVALID_CONFIG;
+        bumpy_state.result = BUMPY_RESULT_FAULT;
         return bumpy_state.status;
     }
 
     bumpy_state.enabled = 1U;
     bumpy_state.status = BUMPY_CTRL_STATUS_OK;
+    bumpy_state.result = BUMPY_RESULT_IDLE;
     return bumpy_state.status;
 }
 
@@ -250,6 +260,7 @@ bumpy_ctrl_status_t bumpy_ctrl_force_enter(float traveled_distance_m)
     if (!bumpy_float_is_finite(traveled_distance_m))
     {
         bumpy_state.status = BUMPY_CTRL_STATUS_INVALID_ARGUMENT;
+        bumpy_state.result = BUMPY_RESULT_FAULT;
         return bumpy_state.status;
     }
 
@@ -265,6 +276,11 @@ bumpy_ctrl_status_t bumpy_ctrl_abort(void)
     uint8 was_enabled;
 
     was_enabled = bumpy_state.enabled;
+    if ((BUMPY_PHASE_IDLE != bumpy_state.phase)
+        && (BUMPY_RESULT_FAULT != bumpy_state.result))
+    {
+        bumpy_state.result = BUMPY_RESULT_ABORTED;
+    }
     bumpy_reset_runtime();
     bumpy_state.enabled = was_enabled;
     bumpy_state.status = was_enabled
@@ -285,6 +301,7 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
     if ((0 == requested) || (0 == shaped))
     {
         bumpy_state.status = BUMPY_CTRL_STATUS_INVALID_ARGUMENT;
+        bumpy_state.result = BUMPY_RESULT_FAULT;
         return bumpy_state.status;
     }
     *shaped = *requested;
@@ -299,6 +316,7 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
         || !bumpy_float_is_finite(imu->acc_norm_g))
     {
         bumpy_state.status = BUMPY_CTRL_STATUS_INVALID_ARGUMENT;
+        bumpy_state.result = BUMPY_RESULT_FAULT;
         return bumpy_state.status;
     }
 
@@ -308,6 +326,7 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
         case BUMPY_PHASE_IDLE:
             if (BUMPY_AUTO_DETECT_ENABLE && new_impact)
             {
+                bumpy_state.result = BUMPY_RESULT_RUNNING;
                 bumpy_state.impact_count = 1U;
                 bumpy_enter_phase(BUMPY_PHASE_DETECTING);
             }
@@ -329,6 +348,7 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
             {
                 bumpy_reset_runtime();
                 bumpy_state.enabled = 1U;
+                bumpy_state.result = BUMPY_RESULT_IDLE;
             }
             break;
 
@@ -336,11 +356,17 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
             bumpy_state.phase_elapsed_steps++;
             bumpy_state.crossing_distance_m = fabsf(
                 traveled_distance_m - bumpy_state.entry_distance_m);
-            if ((bumpy_state.crossing_distance_m
-                 >= BUMPY_CROSSING_DISTANCE_M)
-                || (bumpy_state.phase_elapsed_steps
-                    >= BUMPY_CROSSING_TIMEOUT_STEPS))
+            if (bumpy_state.crossing_distance_m
+                >= BUMPY_CROSSING_DISTANCE_M)
             {
+                pid_reset(&bumpy_speed_pid);
+                bumpy_state.recover_stable_steps = 0U;
+                bumpy_enter_phase(BUMPY_PHASE_RECOVERING);
+            }
+            else if (bumpy_state.phase_elapsed_steps
+                     >= BUMPY_CROSSING_TIMEOUT_STEPS)
+            {
+                bumpy_state.result = BUMPY_RESULT_TIMEOUT;
                 pid_reset(&bumpy_speed_pid);
                 bumpy_state.recover_stable_steps = 0U;
                 bumpy_enter_phase(BUMPY_PHASE_RECOVERING);
@@ -357,13 +383,22 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
             {
                 bumpy_state.recover_stable_steps = 0U;
             }
-            if (((bumpy_state.recover_stable_steps
-                  >= BUMPY_RECOVER_STABLE_STEPS)
-                 && (fabsf(bumpy_state.speed_leg_x_offset_m)
-                     <= BUMPY_MAX_LEG_X_STEP_M))
-                || (bumpy_state.phase_elapsed_steps
-                    >= BUMPY_RECOVER_TIMEOUT_STEPS))
+            if ((bumpy_state.recover_stable_steps
+                 >= BUMPY_RECOVER_STABLE_STEPS)
+                && (fabsf(bumpy_state.speed_leg_x_offset_m)
+                    <= BUMPY_MAX_LEG_X_STEP_M))
             {
+                if (BUMPY_RESULT_RUNNING == bumpy_state.result)
+                {
+                    bumpy_state.result = BUMPY_RESULT_COMPLETED;
+                }
+                bumpy_reset_runtime();
+                bumpy_state.enabled = 1U;
+            }
+            else if (bumpy_state.phase_elapsed_steps
+                     >= BUMPY_RECOVER_TIMEOUT_STEPS)
+            {
+                bumpy_state.result = BUMPY_RESULT_TIMEOUT;
                 bumpy_reset_runtime();
                 bumpy_state.enabled = 1U;
             }
@@ -371,6 +406,7 @@ bumpy_ctrl_status_t bumpy_ctrl_update(const imu_data_t *imu,
 
         default:
             bumpy_state.status = BUMPY_CTRL_STATUS_INVALID_CONFIG;
+            bumpy_state.result = BUMPY_RESULT_FAULT;
             return bumpy_state.status;
     }
 

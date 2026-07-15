@@ -214,6 +214,8 @@ static void control_system_sync_route_state(void)
 static void control_system_service_route_action(void)
 {
     const route_plan_state_t *route;
+    const bridge_ctrl_state_t *bridge;
+    const bumpy_ctrl_state_t *bumpy;
     const rotation_ctrl_state_t *rotation;
     const jump_state_t *jump;
     uint8 completed;
@@ -257,35 +259,50 @@ static void control_system_service_route_action(void)
 
         case ROUTE_ACTION_BRIDGE_LEFT:
         case ROUTE_ACTION_BRIDGE_RIGHT:
+            bridge = bridge_ctrl_get_state();
             if (((uint32)BRIDGE_CTRL_STATUS_OK
                  != control_state.last_bridge_status)
                 && ((uint32)BRIDGE_CTRL_STATUS_DISABLED
                     != control_state.last_bridge_status))
             {
                 completed = 1U;
+                (void)control_system_abort_bridge();
+                (void)control_system_set_bridge_enabled(0U);
             }
             else if (!bridge_ctrl_is_active()
-                     && (BRIDGE_PHASE_IDLE
-                         == bridge_ctrl_get_state()->phase))
+                     && (BRIDGE_PHASE_IDLE == bridge->phase))
             {
                 completed = 1U;
-                success = control_system_set_bridge_enabled(0U);
+                success = (uint8)(BRIDGE_RESULT_COMPLETED
+                                  == bridge->result);
+                if (!control_system_set_bridge_enabled(0U))
+                {
+                    success = 0U;
+                }
             }
             break;
 
         case ROUTE_ACTION_BUMPY:
+            bumpy = bumpy_ctrl_get_state();
             if (((uint32)BUMPY_CTRL_STATUS_OK
                  != control_state.last_bumpy_status)
                 && ((uint32)BUMPY_CTRL_STATUS_DISABLED
                     != control_state.last_bumpy_status))
             {
                 completed = 1U;
+                (void)control_system_abort_bumpy();
+                (void)control_system_set_bumpy_enabled(0U);
             }
             else if (!bumpy_ctrl_is_monitoring()
-                     && (BUMPY_PHASE_IDLE == bumpy_ctrl_get_state()->phase))
+                     && (BUMPY_PHASE_IDLE == bumpy->phase))
             {
                 completed = 1U;
-                success = control_system_set_bumpy_enabled(0U);
+                success = (uint8)(BUMPY_RESULT_COMPLETED
+                                  == bumpy->result);
+                if (!control_system_set_bumpy_enabled(0U))
+                {
+                    success = 0U;
+                }
             }
             break;
 
@@ -1376,43 +1393,49 @@ uint8 control_system_start_route(uint8 route_id)
 void control_system_stop_route(void)
 {
     const route_plan_state_t *route;
+    route_action_t action_to_abort;
     uint32 interrupt_state;
 
+    action_to_abort = ROUTE_ACTION_NONE;
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
     route = route_plan_get_state();
     if (route->action_running)
     {
-        switch (route->current_action)
-        {
-            case ROUTE_ACTION_JUMP:
-                (void)control_system_abort_jump();
-                break;
-
-            case ROUTE_ACTION_ROTATE_CW:
-            case ROUTE_ACTION_ROTATE_CCW:
-                (void)control_system_abort_rotation();
-                break;
-
-            case ROUTE_ACTION_BRIDGE_LEFT:
-            case ROUTE_ACTION_BRIDGE_RIGHT:
-                (void)control_system_abort_bridge();
-                (void)control_system_set_bridge_enabled(0U);
-                break;
-
-            case ROUTE_ACTION_BUMPY:
-                (void)control_system_abort_bumpy();
-                (void)control_system_set_bumpy_enabled(0U);
-                break;
-
-            case ROUTE_ACTION_NONE:
-            case ROUTE_ACTION_STOP:
-            default:
-                break;
-        }
+        action_to_abort = route->current_action;
     }
-
-    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    // Make the route inactive before PendSV can run again, so no pending route
+    // action can be dispatched after the action snapshot above.
     route_plan_abort();
     Cy_SysLib_ExitCriticalSection(interrupt_state);
+
+    switch (action_to_abort)
+    {
+        case ROUTE_ACTION_JUMP:
+            (void)control_system_abort_jump();
+            break;
+
+        case ROUTE_ACTION_ROTATE_CW:
+        case ROUTE_ACTION_ROTATE_CCW:
+            (void)control_system_abort_rotation();
+            break;
+
+        case ROUTE_ACTION_BRIDGE_LEFT:
+        case ROUTE_ACTION_BRIDGE_RIGHT:
+            (void)control_system_abort_bridge();
+            (void)control_system_set_bridge_enabled(0U);
+            break;
+
+        case ROUTE_ACTION_BUMPY:
+            (void)control_system_abort_bumpy();
+            (void)control_system_set_bumpy_enabled(0U);
+            break;
+
+        case ROUTE_ACTION_NONE:
+        case ROUTE_ACTION_STOP:
+        default:
+            break;
+    }
+
     navigation_stop_replay();
     control_system_set_zero_command();
     control_system_sync_route_state();

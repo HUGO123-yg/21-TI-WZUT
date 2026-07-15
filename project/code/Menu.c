@@ -278,7 +278,7 @@ uint8 menu_execute_action(menu_action_t action)
             break;
 
         case MENU_ACTION_TEST_STOP_REPLAY:
-            navigation_stop_replay();
+            control_system_stop_route();
             accepted = menu_request_stand(0U);
             break;
 
@@ -287,11 +287,17 @@ uint8 menu_execute_action(menu_action_t action)
             break;
     }
 
-    menu_state.last_action = action;
-    menu_state.last_result = accepted
-        ? MENU_ACTION_RESULT_ACCEPTED
-        : MENU_ACTION_RESULT_REJECTED;
-    menu_state.active_action = accepted ? action : MENU_ACTION_NONE;
+    if (accepted)
+    {
+        menu_state.last_action = action;
+        menu_state.last_result = MENU_ACTION_RESULT_ACCEPTED;
+        menu_state.active_action = action;
+    }
+    else if (MENU_ACTION_NONE == menu_state.active_action)
+    {
+        menu_state.last_action = action;
+        menu_state.last_result = MENU_ACTION_RESULT_REJECTED;
+    }
     menu_refresh_elapsed_ms = MENU_DISPLAY_REFRESH_MS;
     return accepted;
 }
@@ -299,12 +305,18 @@ uint8 menu_execute_action(menu_action_t action)
 static void menu_update_action_state(void)
 {
     const control_system_state_t *control;
+    const bridge_ctrl_state_t *bridge;
+    const bumpy_ctrl_state_t *bumpy;
     const rotation_ctrl_state_t *rotation;
     const jump_state_t *jump;
     const navigation_state_t *navigation;
     const route_plan_state_t *route;
+    uint8 action_succeeded;
+    uint8 stand_accepted;
 
     control = control_system_get_state();
+    bridge = bridge_ctrl_get_state();
+    bumpy = bumpy_ctrl_get_state();
     navigation = navigation_get_state();
     route = control_system_get_route_state();
     if ((MENU_ACTION_DEV_STAND == menu_state.active_action)
@@ -396,18 +408,26 @@ static void menu_update_action_state(void)
     {
         if (!control_system_get_state()->bridge_active)
         {
-            (void)menu_request_stand(0U);
+            action_succeeded = (uint8)(BRIDGE_RESULT_COMPLETED
+                                       == bridge->result);
+            stand_accepted = menu_request_stand(0U);
             menu_state.active_action = MENU_ACTION_NONE;
-            menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;
+            menu_state.last_result = (action_succeeded && stand_accepted)
+                ? MENU_ACTION_RESULT_COMPLETED
+                : MENU_ACTION_RESULT_REJECTED;
         }
     }
     else if (MENU_ACTION_DEV_BUMPY == menu_state.active_action)
     {
         if (!control_system_get_state()->bumpy_active)
         {
-            (void)menu_request_stand(0U);
+            action_succeeded = (uint8)(BUMPY_RESULT_COMPLETED
+                                       == bumpy->result);
+            stand_accepted = menu_request_stand(0U);
             menu_state.active_action = MENU_ACTION_NONE;
-            menu_state.last_result = MENU_ACTION_RESULT_COMPLETED;
+            menu_state.last_result = (action_succeeded && stand_accepted)
+                ? MENU_ACTION_RESULT_COMPLETED
+                : MENU_ACTION_RESULT_REJECTED;
         }
     }
     else if ((MENU_ACTION_TEST_REPLAY_ROUTE_1 == menu_state.active_action)

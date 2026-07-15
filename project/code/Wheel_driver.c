@@ -141,6 +141,7 @@ void wheel_driver_init(void)
 void wheel_driver_uart_isr(void)
 {
     uint8 byte;
+    uint8 checksum_valid;
     uint8 *frame;
 
     while (uart_query_byte(WHEEL_DRIVER_UART, &byte))
@@ -163,8 +164,8 @@ void wheel_driver_uart_isr(void)
         }
 
         frame = wheel_state.receive_buffer;
-        if (wheel_frame_is_valid(frame)
-            && (WHEEL_COMMAND_GET_SPEED == frame[1]))
+        checksum_valid = wheel_frame_is_valid(frame);
+        if (checksum_valid && (WHEEL_COMMAND_GET_SPEED == frame[1]))
         {
             wheel_state.left_rpm = (int16)(((uint16)frame[2] << 8)
                                             | (uint16)frame[3]);
@@ -178,7 +179,7 @@ void wheel_driver_uart_isr(void)
         }
 
         wheel_state.receive_count = 0U;
-        if (WHEEL_FRAME_HEADER == byte)
+        if (!checksum_valid && (WHEEL_FRAME_HEADER == byte))
         {
             wheel_state.receive_buffer[0] = byte;
             wheel_state.receive_count = 1U;

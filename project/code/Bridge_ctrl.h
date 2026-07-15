@@ -22,9 +22,20 @@ typedef enum
     BRIDGE_PHASE_RECOVERING
 } bridge_phase_t;
 
+typedef enum
+{
+    BRIDGE_RESULT_IDLE = 0,
+    BRIDGE_RESULT_RUNNING,
+    BRIDGE_RESULT_COMPLETED,
+    BRIDGE_RESULT_TIMEOUT,
+    BRIDGE_RESULT_FAULT,
+    BRIDGE_RESULT_ABORTED
+} bridge_ctrl_result_t;
+
 typedef struct
 {
     bridge_ctrl_status_t status;
+    bridge_ctrl_result_t result;
     bridge_phase_t phase;
     uint32 phase_elapsed_steps;
     uint32 detect_count;
