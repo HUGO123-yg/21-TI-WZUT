@@ -524,6 +524,8 @@ static void menu_render_if_needed(void)
 
 void Menu(void)
 {
+    control_background_task();
+
     switch (menu_view)
     {
         case MENU_VIEW_WELCOME:

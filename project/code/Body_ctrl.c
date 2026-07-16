@@ -6,6 +6,47 @@ float target_speed = BODY_TARGET_SPEED_DEFAULT;
 int jump_flag=0;
 int jump_time=0;
 int run_state = BODY_RUN_STATE_DEFAULT;
+static volatile uint8 control_background_pending = 0;
+
+static uint8 body_motor_write_nonblocking(int16 left_speed, int16 right_speed)
+{
+    uint8 frame[7];
+    int16 left_duty;
+    int16 right_duty;
+    volatile stc_SCB_t *uart_module = get_scb_module(SMALL_DRIVER_UART);
+
+    left_speed = func_limit_ab(left_speed, M_MIN, M_MAX);
+    right_speed = func_limit_ab(right_speed, M_MIN, M_MAX);
+    left_duty = (int16)-left_speed;
+    right_duty = right_speed;
+
+    // Never wait in the 1 ms control ISR. If a complete frame cannot fit,
+    // the next control cycle retries with the newest command.
+    if((Cy_SCB_GetFifoSize(uart_module) - Cy_SCB_GetNumInTxFifo(uart_module)) < 7U)
+    {
+        return 0U;
+    }
+
+    frame[0] = 0xA5U;
+    frame[1] = 0x01U;
+    frame[2] = (uint8)((left_duty & 0xFF00) >> 8);
+    frame[3] = (uint8)(left_duty & 0x00FF);
+    frame[4] = (uint8)((right_duty & 0xFF00) >> 8);
+    frame[5] = (uint8)(right_duty & 0x00FF);
+    frame[6] = 0U;
+
+    for(uint8 index = 0U; index < 6U; index++)
+    {
+        frame[6] = (uint8)(frame[6] + frame[index]);
+    }
+
+    for(uint8 index = 0U; index < 7U; index++)
+    {
+        Cy_SCB_WriteTxFifo(uart_module, frame[index]);
+    }
+
+    return 1U;
+}
 
 static void body_roll_pid_reset(void)
 {
@@ -255,7 +296,7 @@ void car_motor_control(void)
         right_motor_duty = 0;                             // 右电机占空比设为 0
     }
 
-    small_driver_set_duty(left_motor_duty, -right_motor_duty); // 设置驱动的电机占空比（）
+    body_motor_write_nonblocking(-left_motor_duty, -right_motor_duty); // 设置驱动的电机占空比（）
     
 //        small_driver_set_duty((int16)roll_balance_cascade.angular_speed_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out); // 设置驱动的电机占空比（）
 
@@ -264,6 +305,26 @@ void car_motor_control(void)
 
 uint32 sys_times=0;
 int STOP_FALG = BODY_STOP_FLAG_DEFAULT;
+
+void control_background_task(void)
+{
+    uint8 should_run = 0U;
+    uint32 interrupt_state = Cy_SysLib_EnterCriticalSection();
+
+    if(control_background_pending != 0U)
+    {
+        control_background_pending = 0U;
+        should_run = 1U;
+    }
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+
+    if(should_run != 0U)
+    {
+        // Any tick arriving during this potentially long operation remains
+        // pending for the next main-loop pass.
+        Nag_System();
+    }
+}
 
 void pit_call_back(void)
 {
@@ -301,7 +362,7 @@ void pit_call_back(void)
     if(run_state == 0 || sys_times <= BODY_CONTROL_STARTUP_DELAY_CYCLES)
     {
         car_steer_control();
-        CYT2_D_motor_ctrl(0, 0);
+        body_motor_write_nonblocking(0, 0);
         return;
     }
 
@@ -316,7 +377,9 @@ void pit_call_back(void)
             
              CYT2_get_distance();                          //获取到距离
             
-             Nag_System();                                 //惯导调度
+             // Nag_System may erase/read/write Flash. Defer it to the main
+             // loop so this 1 ms interrupt always has bounded execution time.
+             control_background_pending = 1U;
 
             
             
@@ -391,7 +454,7 @@ void pit_call_back(void)
                  turn_output = (int16)(N.Final_Out * BODY_TRACK_OUTPUT_GAIN);
              }
 //             CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out+track_cascade.track_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out-track_cascade.track_cycle.out);
-             CYT2_D_motor_ctrl(
+             body_motor_write_nonblocking(
                  -(int16)roll_balance_cascade.angular_speed_cycle.out + turn_output,
                  -(int16)roll_balance_cascade.angular_speed_cycle.out - turn_output);
 
@@ -399,7 +462,7 @@ void pit_call_back(void)
           else
           {
              rotation_stop();
-             CYT2_D_motor_ctrl(0,0);
+             body_motor_write_nonblocking(0,0);
 
           }
           
