@@ -28,6 +28,14 @@ typedef struct
 
 }small_device_value_struct;
 
+typedef struct
+{
+    int16 left_speed;
+    int16 right_speed;
+    uint32 last_rx_tick;
+    uint32 sequence;
+} motor_speed_snapshot_struct;
+
 extern small_device_value_struct motor_value;
 
 
@@ -37,6 +45,11 @@ void uart_control_callback(void);                                   // 无刷驱动 
 void small_driver_set_duty(int16 left_duty, int16 right_duty);      // 无刷驱动 设置电机占空比
 
 void small_driver_get_speed(void);                                  // 无刷驱动 获取速度信息
+
+uint8 small_driver_get_speed_snapshot(
+    motor_speed_snapshot_struct *snapshot,
+    uint32 now_tick,
+    uint32 timeout_ticks);
 
 void small_driver_uart_init(void);                                  // 无刷驱动 串口通讯初始化
 

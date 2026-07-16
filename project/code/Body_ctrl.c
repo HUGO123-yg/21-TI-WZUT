@@ -8,6 +8,67 @@ int jump_time=0;
 int run_state = BODY_RUN_STATE_DEFAULT;
 static volatile uint8 control_background_pending = 0;
 
+typedef struct
+{
+    float target_speed;
+    float navigation_output;
+    uint32 sequence;
+    uint8 motor_enable;
+    uint8 track_enable;
+} body_control_command_struct;
+
+static volatile body_control_command_struct control_command_mailbox =
+{
+    .target_speed = BODY_TARGET_SPEED_DEFAULT,
+    .navigation_output = 0.0f,
+    .sequence = 0U,
+    .motor_enable = BODY_STOP_FLAG_DEFAULT,
+    .track_enable = 0U,
+};
+
+static body_control_command_struct active_control_command =
+{
+    .target_speed = BODY_TARGET_SPEED_DEFAULT,
+    .navigation_output = 0.0f,
+    .sequence = 0U,
+    .motor_enable = BODY_STOP_FLAG_DEFAULT,
+    .track_enable = 0U,
+};
+
+volatile uint32 control_uptime_ticks = 0U;
+
+void control_publish_main_command(void)
+{
+    uint32 interrupt_state = Cy_SysLib_EnterCriticalSection();
+
+    if(control_command_mailbox.target_speed != target_speed
+        || control_command_mailbox.navigation_output != N.Final_Out
+        || control_command_mailbox.motor_enable != ((STOP_FALG != 0) ? 1U : 0U)
+        || control_command_mailbox.track_enable != ((fuxian != 0U) ? 1U : 0U))
+    {
+        control_command_mailbox.target_speed = target_speed;
+        control_command_mailbox.navigation_output = N.Final_Out;
+        control_command_mailbox.motor_enable = (STOP_FALG != 0) ? 1U : 0U;
+        control_command_mailbox.track_enable = (fuxian != 0U) ? 1U : 0U;
+        control_command_mailbox.sequence++;
+    }
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+}
+
+static void body_receive_main_command(void)
+{
+    uint32 sequence = control_command_mailbox.sequence;
+
+    if(sequence != active_control_command.sequence)
+    {
+        active_control_command.target_speed = control_command_mailbox.target_speed;
+        active_control_command.navigation_output = control_command_mailbox.navigation_output;
+        active_control_command.motor_enable = control_command_mailbox.motor_enable;
+        active_control_command.track_enable = control_command_mailbox.track_enable;
+        active_control_command.sequence = sequence;
+    }
+}
+
 static uint8 body_motor_write_nonblocking(int16 left_speed, int16 right_speed)
 {
     uint8 frame[7];
@@ -56,6 +117,14 @@ static void body_roll_pid_reset(void)
     pitch_balance_cascade.angular_speed_cycle.i_value = 0;
     pitch_balance_cascade.angular_speed_cycle.p_value_last = 0;
     pitch_balance_cascade.angular_speed_cycle.out = 0;
+}
+
+static void body_speed_pid_reset(void)
+{
+    roll_balance_cascade.speed_cycle.i_value = 0;
+    roll_balance_cascade.speed_cycle.p_value_last = 0;
+    roll_balance_cascade.speed_cycle.out = 0;
+    car_speed = 0;
 }
 
 //--------------------------------------------------------------------------------
@@ -323,15 +392,28 @@ void control_background_task(void)
         // Any tick arriving during this potentially long operation remains
         // pending for the next main-loop pass.
         Nag_System();
+        control_publish_main_command();
     }
 }
 
 void pit_call_back(void)
 {
+    motor_speed_snapshot_struct speed_snapshot;
+    uint8 motor_feedback_valid;
 
 // static uint32 system_time_state[20] = {0};  
 
     sys_times ++;                                    // 系统计时自增
+    control_uptime_ticks++;
+    body_receive_main_command();
+    motor_feedback_valid = small_driver_get_speed_snapshot(
+        &speed_snapshot,
+        control_uptime_ticks,
+        BODY_MOTOR_FEEDBACK_TIMEOUT_CYCLES);
+    if(motor_feedback_valid == 0U)
+    {
+        body_speed_pid_reset();
+    }
     
 //    for(int i = 0; i < 20; i ++)
 //    {
@@ -370,12 +452,21 @@ void pit_call_back(void)
     {
           int16 turn_output;
 
-          rotation_run();
+          if(motor_feedback_valid != 0U)
+          {
+              rotation_run();
+          }
+          else
+          {
+              rotation_stop();
+          }
 
           if(sys_times % BODY_ANGLE_LOOP_DIVIDER == 0)     // 角度环降频执行
           {
             
-             CYT2_get_distance();                          //获取到距离
+             CYT2_update_distance_from_speed(
+                 speed_snapshot.left_speed,
+                 speed_snapshot.right_speed);
             
              // Nag_System may erase/read/write Flash. Defer it to the main
              // loop so this 1 ms interrupt always has bounded execution time.
@@ -429,20 +520,31 @@ void pit_call_back(void)
                   //速度环
           if(sys_times % BODY_SPEED_LOOP_DIVIDER == 0)     // 速度环降频执行
           {
-              car_speed = (motor_value.receive_left_speed_data - motor_value.receive_right_speed_data) / 2;   // 计算车辆速度：左右电机速度差的一半
-              
-              pid_control(&roll_balance_cascade.speed_cycle, target_speed, (float)car_speed);                 // 速度环 PID 控制，目标值为 0.0 f
-              
-               if (fuxian == 1)
+              if(motor_feedback_valid != 0U)
               {
-                pid_control(&track_cascade.track_cycle, N.Final_Out, 0);                                    // 转向环环 PID 控制，目标值为 0.0 f
+                  car_speed = (speed_snapshot.left_speed - speed_snapshot.right_speed) / 2;
+
+                  pid_control(
+                      &roll_balance_cascade.speed_cycle,
+                      active_control_command.target_speed,
+                      (float)car_speed);
+
+                  if(active_control_command.track_enable != 0U)
+                  {
+                      pid_control(
+                          &track_cascade.track_cycle,
+                          active_control_command.navigation_output,
+                          0.0f);
+                  }
               }
 
               
           
           }
 //          
-          if(STOP_FALG==1 && run_state==1)
+          if(active_control_command.motor_enable != 0U
+              && run_state == 1
+              && motor_feedback_valid != 0U)
           {
              if(rotation_owns_output())
              {
@@ -451,7 +553,7 @@ void pit_call_back(void)
              }
              else
              {
-                 turn_output = (int16)(N.Final_Out * BODY_TRACK_OUTPUT_GAIN);
+                 turn_output = (int16)(active_control_command.navigation_output * BODY_TRACK_OUTPUT_GAIN);
              }
 //             CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out+track_cascade.track_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out-track_cascade.track_cycle.out);
              body_motor_write_nonblocking(

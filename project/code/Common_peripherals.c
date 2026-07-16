@@ -1,4 +1,5 @@
 #include "zf_common_headfile.h"
+#include "config.h"
 
 //----------------------------------------------------蜂鸣器
 void BUZZER_init(void)
@@ -26,10 +27,10 @@ uint8 key2_state_last = 0;                                                      
 uint8 key3_state_last = 0;                                                          // 上一次按键动作状态
 uint8 key4_state_last = 0;                                                          // 上一次按键动作状态
 
-uint8 key1_flag;
-uint8 key2_flag;
-uint8 key3_flag;
-uint8 key4_flag;
+volatile uint8 key1_flag;
+volatile uint8 key2_flag;
+volatile uint8 key3_flag;
+volatile uint8 key4_flag;
 
 int Key_close_flag=0;//外部按键扫描隔绝标志位
 
@@ -77,32 +78,45 @@ void key_scan(void)//按键扫描
     }
 
 
+static uint8 key_take(volatile uint8 *flag)
+{
+  uint8 event;
+  uint32 interrupt_state = Cy_SysLib_EnterCriticalSection();
+
+  event = *flag;
+  *flag = 0U;
+  Cy_SysLib_ExitCriticalSection(interrupt_state);
+
+  if(event != 0U)
+  {
+    BUZZER_check(50);
+  }
+  return event;
+}
+
+uint8 key1_take(void) { return key_take(&key1_flag); }
+uint8 key2_take(void) { return key_take(&key2_flag); }
+uint8 key3_take(void) { return key_take(&key3_flag); }
+uint8 key4_take(void) { return key_take(&key4_flag); }
+
 void key1_clear(void)
 {
-  key1_flag=0;
-  BUZZER_check(50);
-
+  (void)key1_take();
 }
 
 void key2_clear(void)
 {
-  key2_flag=0;
-  BUZZER_check(50);
-
+  (void)key2_take();
 }
 
 void key3_clear(void)
 {
-  key3_flag=0;
-  BUZZER_check(50);
-
+  (void)key3_take();
 }
 
 void key4_clear(void)
 {
-  key4_flag=0;
-  BUZZER_check(50);
-
+  (void)key4_take();
 }
 
 //----------------------------------------------------无刷驱动
@@ -127,13 +141,44 @@ Car_param_t Car = {0, 0, 0, 0, 0, 0}; // 速度结构体
 
 void CYT2_get_speed(void)
 {
-    Car.speed = (motor_value.receive_left_speed_data - motor_value.receive_right_speed_data) / 2; // 车体速度
+    motor_speed_snapshot_struct speed_snapshot;
 
-    Car.speed_L = motor_value.receive_left_speed_data; // 左轮速度
+    (void)small_driver_get_speed_snapshot(
+        &speed_snapshot,
+        control_uptime_ticks,
+        BODY_MOTOR_FEEDBACK_TIMEOUT_CYCLES);
+
+    Car.speed = (speed_snapshot.left_speed - speed_snapshot.right_speed) / 2; // 车体速度
+    Car.speed_L = speed_snapshot.left_speed; // 左轮速度
     // printf("Car.speed_L=%f\r\n", Car.speed_L);
-    Car.speed_R = -motor_value.receive_right_speed_data; // 右轮速度
+    Car.speed_R = -speed_snapshot.right_speed; // 右轮速度
     // printf("Car.speed_R=%f\r\n", Car.speed_R);
     // printf("Car.speed=%f\r\n", Car.speed);
+}
+
+void CYT2_update_distance_from_speed(int16 left_speed, int16 right_speed)
+{
+    Car.speed = (left_speed - right_speed) / 2;
+    Car.speed_L = left_speed;
+    Car.speed_R = -right_speed;
+    Car.mileage += (Car.speed / 60.0f * wheel_diameter * PI * 0.005f);
+    Car.mileage_L = (Car.speed_L / 60.0f * wheel_diameter * PI * 0.005f);
+    Car.mileage_R = (Car.speed_R / 60.0f * wheel_diameter * PI * 0.005f);
+}
+
+void CYT2_get_mileage_snapshot(float *left_mileage, float *right_mileage)
+{
+    uint32 interrupt_state;
+
+    if(left_mileage == NULL || right_mileage == NULL)
+    {
+        return;
+    }
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    *left_mileage = Car.mileage_L;
+    *right_mileage = Car.mileage_R;
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
 }
 
 

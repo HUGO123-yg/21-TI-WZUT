@@ -91,6 +91,7 @@
 #define BODY_ANGLE_LOOP_DIVIDER                (5U)      // 角度环执行分频
 #define BODY_SPEED_LOOP_DIVIDER                (20U)     // 速度环执行分频
 #define BODY_TRACK_OUTPUT_GAIN                 (10.0f)   // 导航输出叠加到左右电机的增益
+#define BODY_MOTOR_FEEDBACK_TIMEOUT_CYCLES     (50U)     // 轮速有效帧超时，1 ms/周期
 
 /* 科目二原地旋转：纯电机差速，固定执行 12 秒，不依赖 yaw 累计 */
 #define ROTATION_DURATION_MS                   (12000U)   // 从启动到完成的总时长
@@ -102,7 +103,7 @@
 #error "BODY_YAW_GYRO_DIVISOR must not be zero"
 #endif
 
-#if BODY_PID_RAMP_CYCLES == 0 || BODY_ANGLE_LOOP_DIVIDER == 0 || BODY_SPEED_LOOP_DIVIDER == 0
+#if BODY_PID_RAMP_CYCLES == 0 || BODY_ANGLE_LOOP_DIVIDER == 0 || BODY_SPEED_LOOP_DIVIDER == 0 || BODY_MOTOR_FEEDBACK_TIMEOUT_CYCLES == 0
 #error "Body control cycle count and dividers must not be zero"
 #endif
 

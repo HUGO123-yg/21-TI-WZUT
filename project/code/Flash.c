@@ -241,8 +241,11 @@ void Run_Nag_Save(void)
 {
     uint16 capacity = get_path_sample_capacity(Nag_PathSelect);
     uint8 end_page = get_path_end_page(Nag_PathSelect);
+    float left_mileage;
+    float right_mileage;
 
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f;
+    CYT2_get_mileage_snapshot(&left_mileage, &right_mileage);
+    N.Mileage_All += (right_mileage + left_mileage) * 0.5f;
 
     if (N.size >= NAG_SAMPLES_PER_PAGE)
     {
@@ -279,8 +282,11 @@ void Run_Nag_Save(void)
 void Run_Nag_GPS(void)
 {
     uint16 prospect;
+    float left_mileage;
+    float right_mileage;
 
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f;
+    CYT2_get_mileage_snapshot(&left_mileage, &right_mileage);
+    N.Mileage_All += (right_mileage + left_mileage) * 0.5f;
     if (N.Mileage_All < Nag_Set_mileage)
     {
         return;
@@ -394,34 +400,30 @@ void NagFlashRead(void)
 
 void control_navigation(void)
 {
-    if (key1_flag == 1)
+    if (key1_take())
     {
         N.Nag_SystemRun_Index = 1U;
-        key1_flag = 0;
     }
 
-    if (key3_flag == 1 && N.Nag_SystemRun_Index == 1U)
+    if (N.Nag_SystemRun_Index == 1U && key3_take())
     {
         N.End_f = 1U;
-        key3_flag = 0;
     }
 
-    if (key2_flag == 1)
+    if (key2_take())
     {
         N.Nag_SystemRun_Index = 2U;
         fuxian = 1U;
         target_speed = user_set_speed;
-        key2_flag = 0;
     }
 
-    if (key4_flag == 1)
+    if (key4_take())
     {
         user_set_speed += 50.0f;
         if (user_set_speed > 700.0f)
         {
             user_set_speed = 50.0f;
         }
-        key4_flag = 0;
     }
 }
 

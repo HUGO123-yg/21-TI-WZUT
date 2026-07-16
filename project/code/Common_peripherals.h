@@ -80,10 +80,10 @@ typedef struct
 
 extern Car_param_t Car;
 
-extern uint8 key1_flag;
-extern uint8 key2_flag;
-extern uint8 key3_flag;
-extern uint8 key4_flag;
+extern volatile uint8 key1_flag;
+extern volatile uint8 key2_flag;
+extern volatile uint8 key3_flag;
+extern volatile uint8 key4_flag;
 
 
 extern int16 car_speed;
@@ -106,11 +106,17 @@ void key1_clear(void);
 void key2_clear(void);
 void key3_clear(void);
 void key4_clear(void);
+uint8 key1_take(void);
+uint8 key2_take(void);
+uint8 key3_take(void);
+uint8 key4_take(void);
 
 void CYT2_D_motor_ctrl(int16 L_SPEED,int16_t R_SPEED);
 
 void CYT2_get_speed(void);
 void CYT2_get_distance(void);
+void CYT2_update_distance_from_speed(int16 left_speed, int16 right_speed);
+void CYT2_get_mileage_snapshot(float *left_mileage, float *right_mileage);
 
 void steer_control_init(void);
 void steer_control(steer_control_struct *control_data, int16 move_num);

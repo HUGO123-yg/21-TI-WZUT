@@ -423,7 +423,7 @@ static void menu_activate_current_item(void)
 
 static void menu_handle_list_keys(void)
 {
-    if (key1_flag)
+    if (key1_take())
     {
         if (current_selection == 0U)
         {
@@ -433,41 +433,31 @@ static void menu_handle_list_keys(void)
         {
             current_selection--;
         }
-        key1_clear();
         menu_redraw = 1U;
     }
 
-    if (key2_flag)
+    if (key2_take())
     {
         current_selection++;
         if (current_selection >= current_page->item_count)
         {
             current_selection = 0U;
         }
-        key2_clear();
         menu_redraw = 1U;
     }
 
-    if (key3_flag)
+    if (key3_take())
     {
-        key3_clear();
         menu_activate_current_item();
     }
 }
 
 static void menu_handle_welcome(void)
 {
-    if (key1_flag)
+    (void)key1_take();
+    (void)key2_take();
+    if (key3_take())
     {
-        key1_clear();
-    }
-    if (key2_flag)
-    {
-        key2_clear();
-    }
-    if (key3_flag)
-    {
-        key3_clear();
         menu_view = MENU_VIEW_LIST;
         menu_redraw = 1U;
     }
@@ -475,17 +465,10 @@ static void menu_handle_welcome(void)
 
 static void menu_handle_action(void)
 {
-    if (key1_flag)
+    (void)key1_take();
+    (void)key2_take();
+    if (key3_take())
     {
-        key1_clear();
-    }
-    if (key2_flag)
-    {
-        key2_clear();
-    }
-    if (key3_flag)
-    {
-        key3_clear();
         if (current_action == rotation_test_action)
         {
             rotation_stop();
@@ -554,4 +537,5 @@ void Menu(void)
     }
 
     menu_render_if_needed();
+    control_publish_main_command();
 }

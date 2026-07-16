@@ -2,6 +2,7 @@
 
 
 small_device_value_struct motor_value;      // 定义通讯参数结构体
+static volatile motor_speed_snapshot_struct published_speed;
 
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -41,9 +42,21 @@ void uart_control_callback(void)
 
                     if(motor_value.receive_data_buffer[1] == 0x02)                          // 判断是否正确接收到 速度输出 功能字
                     {
-                        motor_value.receive_left_speed_data  = (((int)motor_value.receive_data_buffer[2] << 8) | (int)motor_value.receive_data_buffer[3]);  // 拟合左侧电机转速数据
+                        int16 left_speed = (int16)(((uint16)motor_value.receive_data_buffer[2] << 8)
+                            | (uint16)motor_value.receive_data_buffer[3]);
+                        int16 right_speed = (int16)(((uint16)motor_value.receive_data_buffer[4] << 8)
+                            | (uint16)motor_value.receive_data_buffer[5]);
+                        uint32 interrupt_state = Cy_SysLib_EnterCriticalSection();
 
-                        motor_value.receive_right_speed_data = (((int)motor_value.receive_data_buffer[4] << 8) | (int)motor_value.receive_data_buffer[5]);  // 拟合右侧电机转速数据
+                        // Publish the complete frame as one snapshot. Readers
+                        // can never observe a new left value with an old right value.
+                        motor_value.receive_left_speed_data = left_speed;
+                        motor_value.receive_right_speed_data = right_speed;
+                        published_speed.left_speed = left_speed;
+                        published_speed.right_speed = right_speed;
+                        published_speed.last_rx_tick = control_uptime_ticks;
+                        published_speed.sequence++;
+                        Cy_SysLib_ExitCriticalSection(interrupt_state);
                     }
 
                     motor_value.receive_data_count = 0;                                     // 清除缓冲区计数值
@@ -65,6 +78,35 @@ void uart_control_callback(void)
             }
         }
     }
+}
+
+uint8 small_driver_get_speed_snapshot(
+    motor_speed_snapshot_struct *snapshot,
+    uint32 now_tick,
+    uint32 timeout_ticks)
+{
+    uint32 interrupt_state;
+
+    if(snapshot == NULL)
+    {
+        return 0U;
+    }
+
+    interrupt_state = Cy_SysLib_EnterCriticalSection();
+    snapshot->left_speed = published_speed.left_speed;
+    snapshot->right_speed = published_speed.right_speed;
+    snapshot->last_rx_tick = published_speed.last_rx_tick;
+    snapshot->sequence = published_speed.sequence;
+    Cy_SysLib_ExitCriticalSection(interrupt_state);
+
+    if(snapshot->sequence == 0U
+        || (uint32)(now_tick - snapshot->last_rx_tick) > timeout_ticks)
+    {
+        snapshot->left_speed = 0;
+        snapshot->right_speed = 0;
+        return 0U;
+    }
+    return 1U;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -146,6 +188,11 @@ void small_driver_init(void)
     motor_value.receive_right_speed_data    = 0;
 
     motor_value.receive_left_speed_data     = 0;
+
+    published_speed.left_speed             = 0;
+    published_speed.right_speed            = 0;
+    published_speed.last_rx_tick           = 0U;
+    published_speed.sequence               = 0U;
 }
 
 
