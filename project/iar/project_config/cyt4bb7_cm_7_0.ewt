@@ -1459,6 +1459,12 @@
             <name>$PROJ_DIR$\..\..\code\Menu.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Rotation.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.c</name>
         </file>
         <file>

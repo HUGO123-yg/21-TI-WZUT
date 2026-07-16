@@ -1,4 +1,5 @@
 #include "zf_common_headfile.h"
+#include "Rotation.h"
 
 typedef void (*menu_action_t)(void);
 
@@ -190,6 +191,26 @@ static void empty_action(void)
 {
 }
 
+static void rotation_test_action(void)
+{
+    if (Menu_IsActionFirstCall())
+    {
+        // 导航停止产生新目标；Body_ctrl 的旋转仲裁还会屏蔽残留差速。
+        fuxian = 0U;
+        target_speed = 0.0f;
+        rotation_stop();
+        (void)rotation_start(ROT_CW);
+    }
+
+    ips_show_string(0, 16 * 0, "Rotation 12s");
+    ips_show_string(0, 16 * 1, "State:");
+    ips_show_string(8 * 10, 16 * 1, rotation_state_name(rotation.state));
+    ips_show_string(0, 16 * 2, "Duty:");
+    ips_show_int(8 * 10, 16 * 2, rotation.turn_duty, 5);
+    ips_show_string(0, 16 * 3, "Time:");
+    ips_show_int(8 * 10, 16 * 3, rotation.elapsed_ms, 5);
+}
+
 /*
  * Menu configuration
  *
@@ -255,7 +276,7 @@ static const menu_page_t path3_menu =
 
 static const menu_item_t test_d_items[] =
 {
-    MENU_ACTION("D_1", empty_action),
+    MENU_ACTION("Rotation 12s", rotation_test_action),
     MENU_ACTION("D_2", empty_action),
     MENU_ACTION("D_3", empty_action),
     MENU_ACTION("D_4", empty_action),
@@ -465,6 +486,10 @@ static void menu_handle_action(void)
     if (key3_flag)
     {
         key3_clear();
+        if (current_action == rotation_test_action)
+        {
+            rotation_stop();
+        }
         current_action = NULL;
         menu_view = MENU_VIEW_LIST;
         menu_redraw = 1U;

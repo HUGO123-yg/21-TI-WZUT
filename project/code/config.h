@@ -92,12 +92,30 @@
 #define BODY_SPEED_LOOP_DIVIDER                (20U)     // 速度环执行分频
 #define BODY_TRACK_OUTPUT_GAIN                 (10.0f)   // 导航输出叠加到左右电机的增益
 
+/* 科目二原地旋转：纯电机差速，固定执行 12 秒，不依赖 yaw 累计 */
+#define ROTATION_DURATION_MS                   (12000U)   // 从启动到完成的总时长
+#define ROTATION_RAMP_MS                       (300U)     // 起步和结束各自的差速渐变时长
+#define ROTATION_TURN_DUTY                     (1500)     // 左右轮反向叠加的最大差速
+#define ROTATION_CW_OUTPUT_SIGN                (1)        // 实车顺时针方向相反时改为 -1
+
 #if BODY_YAW_GYRO_DIVISOR == 0
 #error "BODY_YAW_GYRO_DIVISOR must not be zero"
 #endif
 
 #if BODY_PID_RAMP_CYCLES == 0 || BODY_ANGLE_LOOP_DIVIDER == 0 || BODY_SPEED_LOOP_DIVIDER == 0
 #error "Body control cycle count and dividers must not be zero"
+#endif
+
+#if ROTATION_RAMP_MS == 0 || (ROTATION_RAMP_MS * 2U) >= ROTATION_DURATION_MS
+#error "Rotation ramp must be non-zero and shorter than half the duration"
+#endif
+
+#if ROTATION_TURN_DUTY <= 0 || ROTATION_TURN_DUTY > BODY_TURN_DUTY_MAX
+#error "Rotation duty must fit within the motor turn output limit"
+#endif
+
+#if ROTATION_CW_OUTPUT_SIGN != 1 && ROTATION_CW_OUTPUT_SIGN != -1
+#error "ROTATION_CW_OUTPUT_SIGN must be 1 or -1"
 #endif
 
 #endif

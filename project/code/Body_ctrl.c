@@ -1,5 +1,6 @@
 #include "zf_common_headfile.h"
 #include "config.h"
+#include "Rotation.h"
 
 float target_speed = BODY_TARGET_SPEED_DEFAULT;
 int jump_flag=0;
@@ -292,6 +293,11 @@ void pit_call_back(void)
 
     car_state_calculate();
 
+    if(run_state == 0)
+    {
+        rotation_stop();
+    }
+
     if(run_state == 0 || sys_times <= BODY_CONTROL_STARTUP_DELAY_CYCLES)
     {
         car_steer_control();
@@ -301,6 +307,10 @@ void pit_call_back(void)
 
     if(sys_times > BODY_CONTROL_STARTUP_DELAY_CYCLES)
     {
+          int16 turn_output;
+
+          rotation_run();
+
           if(sys_times % BODY_ANGLE_LOOP_DIVIDER == 0)     // 角度环降频执行
           {
             
@@ -371,14 +381,24 @@ void pit_call_back(void)
 //          
           if(STOP_FALG==1 && run_state==1)
           {
+             if(rotation_owns_output())
+             {
+                 // 原地旋转独占差速量；前后平衡公共输出仍然保留。
+                 turn_output = rotation.turn_duty;
+             }
+             else
+             {
+                 turn_output = (int16)(N.Final_Out * BODY_TRACK_OUTPUT_GAIN);
+             }
 //             CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out+track_cascade.track_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out-track_cascade.track_cycle.out);
              CYT2_D_motor_ctrl(
-                 -(int16)roll_balance_cascade.angular_speed_cycle.out + N.Final_Out * BODY_TRACK_OUTPUT_GAIN,
-                 -(int16)roll_balance_cascade.angular_speed_cycle.out - N.Final_Out * BODY_TRACK_OUTPUT_GAIN);
+                 -(int16)roll_balance_cascade.angular_speed_cycle.out + turn_output,
+                 -(int16)roll_balance_cascade.angular_speed_cycle.out - turn_output);
 
           }
           else
           {
+             rotation_stop();
              CYT2_D_motor_ctrl(0,0);
 
           }
