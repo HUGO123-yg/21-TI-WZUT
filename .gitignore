@@ -1,26 +1,34 @@
-# IAR Embedded Workbench build artifacts
-project/iar/Debug_m7_0/
-project/iar/Debug_m7_1/
-project/iar/project_config/Debug_m7_0/
-project/iar/project_config/Debug_m7_1/
-project/iar/project_config/settings/*.cspy.bat
-project/iar/project_config/settings/*.cspy.ps1
+# Build output
+/build/
+project/iar/Debug*/
+project/iar/project_config/Debug*/
 
-# Object files
+# IAR generated state and temporary files
+project/iar/settings/
+project/iar/project_config/settings/
+*.crun
+*.dbgdt
+*.dnx
+*.ps1
+*.xcl
+*.reggroups
+
+# Compiler and linker output
 *.o
 *.out
-
-# Listing files
+*.elf
+*.bin
+*.hex
+*.d
 *.lst
 *.map
-
-# Ninja build system
-*.ninja*
-.ninja_*
-
-# IAR browse info
 *.pbi
 *.pbd
 
-# macOS
+# Generated build systems
+*.ninja*
+.ninja_*
+
+# IDE and OS state
+/.metadata/
 .DS_Store

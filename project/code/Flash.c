@@ -1,26 +1,17 @@
 #include "zf_common_headfile.h"
 
 
-// ç”¨æˆ·è®¾ç½®çš„ç›®æ ‡é€Ÿåº¦ï¼Œå›æ”¾æ—¶æŒ‰æ­¤é€Ÿåº¦è¡Œé©¶
-float user_set_speed = 200; // åˆå§‹ç›®æ ‡é€Ÿåº¦ä¸º200
+// ÓÃ»§ÉèÖÃµÄÄ¿±êËÙ¶È£¬½öÓÉ°´¼üËÄµ÷Õû
+float user_set_speed = 200; // ³õÊ¼Ä¿±êËÙ¶ÈÎª200
 
-float Nav_read[Read_MaxSize]; // ä»¥5cmä¸ºå•ä½çš„å›æ”¾ç¼“å†²ï¼Œ1000ä¸ªç‚¹å¯¹åº”50m
+float Nav_read[Read_MaxSize]; // °´5cmËãµÄ»°,1000¿ÉÒÔÅÜ50m
 Nag N;
 
-static volatile uint8 nag_flash_write_pending = 0;
-static volatile uint8 nag_flash_read_pending  = 0;
-static volatile uint8 nag_flash_write_final   = 0;
-static volatile uint8 nag_flash_read_active   = 0;
-static uint8 nag_read_page                    = 0;
-static uint8 nag_read_end_page                = 0;
-static uint16 nag_read_count                  = 0;
-static uint16 nag_read_copied                 = 0;
 
-
-// ============== è·¯å¾„é€‰æ‹©ç›¸å…³ ==============
-uint8 Nag_PathSelect = 1;  // é»˜è®¤é€‰æ‹©è·¯å¾„1
+// ============== ¶àÂ·¾¶Ñ¡Ôñ±äÁ¿ ==============
+uint8 Nag_PathSelect = 1;  // Ä¬ÈÏÑ¡ÔñÂ·¾¶1
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æŒ‰è·¯å¾„ç¼–å·è·å–èµ·å§‹é¡µ
+// º¯Êı¼ò½é     ¸ù¾İÂ·¾¶±àºÅ»ñÈ¡ÆğÊ¼Ò³
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 get_path_start_page(uint8 path_id)
 {
@@ -32,9 +23,8 @@ static uint8 get_path_start_page(uint8 path_id)
         default: return NAG_PATH1_START;
     }
 }
-
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æŒ‰è·¯å¾„ç¼–å·è·å–ç»“æŸé¡µ
+// º¯Êı¼ò½é     ¸ù¾İÂ·¾¶±àºÅ»ñÈ¡½áÊøÒ³(ÔªÊı¾İÒ³)
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 get_path_end_page(uint8 path_id)
 {
@@ -47,115 +37,39 @@ static uint8 get_path_end_page(uint8 path_id)
     }
 }
 
-static uint16 get_path_capacity(uint8 path_id)
+
+
+//-------------------------------------------------------------------------------------------------------------------
+// º¯Êı¼ò½é     °´Â·¾¶³õÊ¼»¯¹ßµ¼ (ÉèÖÃFlash_page_indexÎª¶ÔÓ¦Â·¾¶µÄÆğÊ¼Ò³)
+//-------------------------------------------------------------------------------------------------------------------
+void Init_Nag_Path(uint8 path_id)
 {
-    uint8 start_page = get_path_start_page(path_id);
-    uint8 end_page   = get_path_end_page(path_id);
-    uint16 capacity;
-
-    if (start_page < end_page)
-        return 0;
-
-    capacity = (uint16)(start_page - end_page + 1) * NAG_POINTS_PER_PAGE;
-    if (capacity > Read_MaxSize)
-        capacity = Read_MaxSize;
-
-    return capacity;
-}
-
-static uint16 nag_clamp_save_index(uint8 path_id, uint32 save_index)
-{
-    uint16 path_capacity = get_path_capacity(path_id);
-
-    if (save_index == 0xFFFFFFFFu)
-        return 0;
-
-    if (save_index > path_capacity)
-        return path_capacity;
-
-    return (uint16)save_index;
-}
-
-static uint32 nag_meta_checksum(uint16 save_idx_1, uint16 save_idx_2, uint16 save_idx_3)
-{
-    uint32 checksum = NAG_META_MAGIC ^ NAG_META_VERSION ^ (uint32)Nag_Set_mileage;
-
-    checksum ^= ((uint32)save_idx_1 << 16) | save_idx_2;
-    checksum ^= ((uint32)save_idx_3 << 8);
-    checksum ^= 0x5A5AA5A5u;
-
-    return checksum;
-}
-
-static uint8 nag_meta_is_valid(void)
-{
-    uint32 save_idx_1 = flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH1_META_SLOT].uint32_type;
-    uint32 save_idx_2 = flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH2_META_SLOT].uint32_type;
-    uint32 save_idx_3 = flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH3_META_SLOT].uint32_type;
-    uint32 checksum   = flash_union_buffer[NAG_META_CHECKSUM_OFFSET].uint32_type;
-
-    if (flash_union_buffer[NAG_META_MAGIC_OFFSET].uint32_type != NAG_META_MAGIC)
-        return 0;
-
-    if (flash_union_buffer[NAG_META_VERSION_OFFSET].uint32_type != NAG_META_VERSION)
-        return 0;
-
-    if (flash_union_buffer[NAG_META_SAMPLE_CM_OFFSET].uint32_type != Nag_Set_mileage)
-        return 0;
-
-    if (save_idx_1 > get_path_capacity(1) ||
-        save_idx_2 > get_path_capacity(2) ||
-        save_idx_3 > get_path_capacity(3))
-    {
-        return 0;
-    }
-
-    return checksum == nag_meta_checksum((uint16)save_idx_1, (uint16)save_idx_2, (uint16)save_idx_3);
-}
-
-static void nag_read_meta_values(uint16 save_index[NAG_PATH_COUNT])
-{
-    uint8 index;
-    uint8 has_new_meta;
-    uint8 meta_valid;
-
-    for (index = 0; index < NAG_PATH_COUNT; index++)
-    {
-        save_index[index] = 0;
-    }
-
-    flash_buffer_clear();
-    flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-
-    has_new_meta = (flash_union_buffer[NAG_META_MAGIC_OFFSET].uint32_type != 0xFFFFFFFFu);
-    meta_valid   = nag_meta_is_valid();
-    if (has_new_meta && !meta_valid)
-    {
-        flash_buffer_clear();
-        return;
-    }
-
-    for (index = 0; index < NAG_PATH_COUNT; index++)
-    {
-        save_index[index] = nag_clamp_save_index((uint8)(index + 1),
-            flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + index].uint32_type);
-    }
-
+    Nag_PathSelect = path_id;
+    memset(&N, 0, sizeof(N));
+    N.Flash_page_index = get_path_start_page(path_id);
     flash_buffer_clear();
 }
 
-static void nag_write_meta_values(const uint16 save_index[NAG_PATH_COUNT])
+//-------------------------------------------------------------------------------------------------------------------
+// º¯Êı¼ò½é     Ğ´ÈëÔªÊı¾İÒ³ (½«3ÌõÂ·¾¶µÄSave_index¶¼Ğ´Èëpage 1)
+// ±¸×¢ĞÅÏ¢     ÔÚÔªÊı¾İÒ³ÖĞ:
+//               buffer[MaxSize+0] = Â·¾¶1µÄSave_index
+//               buffer[MaxSize+1] = Â·¾¶2µÄSave_index
+//               buffer[MaxSize+2] = Â·¾¶3µÄSave_index
+//-------------------------------------------------------------------------------------------------------------------
+void flash_Nag_Write_Meta(void)
 {
+    uint16 save_idx_1 = Get_Path_SaveIndex(1);
+    uint16 save_idx_2 = Get_Path_SaveIndex(2);
+    uint16 save_idx_3 = Get_Path_SaveIndex(3);
+    
     flash_buffer_clear();
-    flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH1_META_SLOT].uint32_type = save_index[NAG_PATH1_META_SLOT];
-    flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH2_META_SLOT].uint32_type = save_index[NAG_PATH2_META_SLOT];
-    flash_union_buffer[NAG_META_SAVE_INDEX_OFFSET + NAG_PATH3_META_SLOT].uint32_type = save_index[NAG_PATH3_META_SLOT];
-    flash_union_buffer[NAG_META_MAGIC_OFFSET].uint32_type     = NAG_META_MAGIC;
-    flash_union_buffer[NAG_META_VERSION_OFFSET].uint32_type   = NAG_META_VERSION;
-    flash_union_buffer[NAG_META_SAMPLE_CM_OFFSET].uint32_type = Nag_Set_mileage;
-    flash_union_buffer[NAG_META_CHECKSUM_OFFSET].uint32_type  = nag_meta_checksum(save_index[NAG_PATH1_META_SLOT],
-        save_index[NAG_PATH2_META_SLOT],
-        save_index[NAG_PATH3_META_SLOT]);
+    flash_union_buffer[MaxSize + 0].uint32_type = save_idx_1;
+    flash_union_buffer[MaxSize + 1].uint32_type = save_idx_2;
+    flash_union_buffer[MaxSize + 2].uint32_type = save_idx_3;
+
+    // ¼ò»¯´¦Àí£ºµ±Ç°Â·¾¶µÄSave_indexÖ±½ÓĞ´Èë
+    flash_union_buffer[MaxSize + (Nag_PathSelect - 1)].uint32_type = N.Save_index;
 
     if (flash_check(0, NAG_META_PAGE))
         flash_erase_page(0, NAG_META_PAGE);
@@ -163,247 +77,145 @@ static void nag_write_meta_values(const uint16 save_index[NAG_PATH_COUNT])
     flash_buffer_clear();
 }
 
-static void nag_request_flash_write(uint8 is_final)
-{
-    if (nag_flash_write_pending)
-        return;
-
-    nag_flash_write_final    = is_final;
-    nag_flash_write_pending  = 1;
-}
-
-static void nag_request_flash_read(void)
-{
-    if (nag_flash_read_pending || nag_flash_read_active || N.Save_state)
-        return;
-
-    nag_flash_read_pending = 1;
-}
-
-static void nag_stop_replay(void)
-{
-    N.Nag_Stop_f = true;
-    N.Final_Out  = 0.0f;
-    target_speed = 0.0f;
-    fuxian       = 0;
-    STOP_FLAG    = 0;
-}
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æŒ‰è·¯å¾„ç¼–å·åˆå§‹åŒ–æƒ¯å¯¼ (è®¾ç½®Flash_page_indexä¸ºå¯¹åº”è·¯å¾„çš„èµ·å§‹é¡µ)
-//-------------------------------------------------------------------------------------------------------------------
-void Init_Nag_Path(uint8 path_id)
-{
-    Nag_PathSelect = path_id;
-    memset(&N, 0, sizeof(N));
-    N.Flash_page_index = get_path_start_page(path_id);
-    nag_flash_write_pending = 0;
-    nag_flash_read_pending  = 0;
-    nag_flash_write_final   = 0;
-    nag_flash_read_active   = 0;
-    nag_read_page           = 0;
-    nag_read_end_page       = 0;
-    nag_read_count          = 0;
-    nag_read_copied         = 0;
-    flash_buffer_clear();
-}
-
-//-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     å†™å…¥å…ƒæ•°æ®é¡µ (æŠŠ3æ¡è·¯å¾„çš„Save_indexå†™å…¥page 1)
-// å¤‡æ³¨ä¿¡æ¯ï¼š     å…ƒæ•°æ®é¡µå¸ƒå±€:
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+0] = è·¯å¾„1çš„Save_index
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+1] = è·¯å¾„2çš„Save_index
-    //               buffer[NAG_META_SAVE_INDEX_OFFSET+2] = è·¯å¾„3çš„Save_index
-//-------------------------------------------------------------------------------------------------------------------
-void flash_Nag_Write_Meta(void)
-{
-    uint16 save_index[NAG_PATH_COUNT];
-
-    nag_read_meta_values(save_index);
-
-    if (Nag_PathSelect >= 1 && Nag_PathSelect <= NAG_PATH_COUNT)
-    {
-        save_index[Nag_PathSelect - 1] = nag_clamp_save_index(Nag_PathSelect, N.Save_index);
-    }
-
-    nag_write_meta_values(save_index);
-}
-
-//-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     è¯»å–å…ƒæ•°æ®é¡µï¼Œè¯»å–æŒ‡å®šè·¯å¾„çš„Save_index
+// º¯Êı¼ò½é     ¶ÁÈ¡ÔªÊı¾İÒ³£¬»ñÈ¡Ö¸¶¨Â·¾¶µÄSave_index
 //-------------------------------------------------------------------------------------------------------------------
 uint16 Get_Path_SaveIndex(uint8 path_id)
 {
-    uint16 save_index[NAG_PATH_COUNT];
+    if (path_id < 1 || path_id > 3) return 0;
 
-    if (path_id < 1 || path_id > NAG_PATH_COUNT)
-        return 0;
-
-    nag_read_meta_values(save_index);
-
-    return save_index[path_id - 1];
-}
-
-void Nag_Clear_Path_Meta(uint8 path_id)
-{
-    uint16 save_index[NAG_PATH_COUNT];
-
-    if (path_id < 1 || path_id > NAG_PATH_COUNT)
-        return;
-
-    nag_read_meta_values(save_index);
-    save_index[path_id - 1] = 0;
-    nag_write_meta_values(save_index);
+    flash_buffer_clear();
+    flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+    uint16 save_idx = flash_union_buffer[MaxSize + (path_id - 1)].uint32_type;
+    flash_buffer_clear();
+    return save_idx;
 }
 
 
 
 
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     è¯»å–åèˆªè§’çš„çº¿ç¨‹å‡½æ•°
-// å‡½æ•°è¯´æ˜ï¼š     è¯»å–åèˆªè§’çš„çº¿ç¨‹å‡½æ•°ï¼Œé€šè¿‡åˆ‡æ¢N.End_fè¿›è¡Œåˆ‡æ¢çº¿ç¨‹
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ç”¨æˆ·ä¸è¦è°ƒç”¨
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     ¶ÁÈ¡Æ«º½½ÇµÄÏß³Ìº¯Êı
+// ²ÎÊıËµÃ÷     ¶ÁÈ¡Æ«º½½ÇµÄÏß³Ìº¯Êı£¬Í¨¹ıÇĞ»»N.End_fÀ´ÇĞ»»Ïß³Ì
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ÓÃ»§ÎŞĞèµ÷ÓÃ
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_Read()
 {
     switch (N.End_f)
     {
     case 0:
-        Run_Nag_Save(); // é»˜è®¤æ‰§è¡Œè®°å½•å‡½æ•°
+        Run_Nag_Save(); // Ä¬ÈÏÖ´ĞĞº¯Êı
         break;
     case 1:
-        nag_request_flash_write(1); // å†™å…¥æœ€åä¸€é¡µï¼Œä¿è¯flashå­˜å‚¨å®Œæ•´
+        flash_Nag_Write(); // Ğ´Èë×îºóÒ»Ò³£¬±£Ö¤falsh´æ´¢Âú
+        N.End_f++;
         break;
-    case 2:
+    case 2:        
 //      gpio_set_level(BUZZER_PIN,1);
-        N.End_f++; // é€€å‡ºçº¿ç¨‹
+        N.End_f++; // ½áÊøÏß³Ì
         break;
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æ‰§è¡Œå›æ”¾åå·®è®¡ç®—
-// å‡½æ•°è¯´æ˜ï¼š     N.Final_Outä¸ºå›æ”¾ç”Ÿæˆçš„åå·®è§’åº¦
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ç”¨æˆ·ä¸è¦è°ƒç”¨
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     ÓÃÓÚÉú³ÉÆ«²î¼ÆËã
+// ²ÎÊıËµÃ÷     N.Final_OutÎª×îÖÕÉú³ÉµÄÆ«²î´óĞ¡
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ÓÃ»§ÎŞĞèµ÷ÓÃ
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_Run()
 {
-    Run_Nag_GPS();    // åèˆªè§’åº¦è¯»å–å‡½æ•°
-    if (N.Nag_Stop_f) // ç»ˆæ­¢å›æ”¾
+    Run_Nag_GPS();    // Æ«º½½Ç¶ÁÈ¡¸´ÏÖ
+    if (N.Nag_Stop_f) // ·ÀÖ¹Ğı×ª
     {
         N.Final_Out = 0;
         target_speed = 0;
         fuxian = 0;
-        STOP_FLAG=0;
+        STOP_FALG=0;
         return;
     }
     N.Final_Out = angle_plan(Nag_Yaw - N.Angle_Run);
 //      N.Final_Out = (Nag_Yaw - N.Angle_Run);
 }
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     åèˆªè§’å­˜å‚¨
-// å‡½æ•°è¯´æ˜ï¼š     å°†è·å–çš„YAWå­˜å‚¨åˆ°flashä¸­å­˜å‚¨
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ç”¨æˆ·ä¸è¦è°ƒç”¨
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     Æ«º½½Ç´æÈë
+// ²ÎÊıËµÃ÷     ½«¶ÁÈ¡µÄYAW´æ´¢µ½flashÖĞ´æ´¢
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ÓÃ»§ÎŞĞèµ÷ÓÃ
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 
-//å…³é”®è®°å½•é‡Œç¨‹ï¼Œåªéœ€è¦è®°å½•åèˆªè§’ï¼Œä»¥ç¦»æ•£å•ä½å½¢å¼è®°å½•
+//²»±Ø¼ÇÂ¼¾àÀë£¬Ö»ĞèÒª¼ÇÂ¼Æ«º½½Ç£¬¾àÀëÒÔµãÎ»µÄĞÎÊ½¼ÇÂ¼
 void Run_Nag_Save(void)
 {
-    uint16 path_capacity = get_path_capacity(Nag_PathSelect);
-
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // é‡Œç¨‹è®¡å–å€¼ï¼Œé‡‡ç”¨å·¦å³ç¼–ç å™¨å¹³å‡å€¼ï¼Œè¯¥é‡Œç¨‹è®¡èƒ½è¢«ç¼–ç å™¨æ›´æ–°
-
-    if (nag_flash_write_pending)
-        return;
-
-//    N.Mileage_All =Car.mileage;//é‡Œç¨‹è®¡å–å€¼
+    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // Àú³Ì¼Æ¶ÁÈ¡£¬×óÓÒ±àÂëÆ÷£¬Ê¹ÓÃ¸¡µãÊıµÄ»°Îó²îÄÜ±£ÁôÏÂÀ´
+  
+//    N.Mileage_All =Car.mileage;//Àï³Ì¼Æ¶ÁÈ¡
     // printf("Mileage_All=%f\r\n", N.Mileage_All);
-
-    if (N.Save_index >= path_capacity)
+    
+    if (N.size > MaxSize) // µ±´óÓÚÕâÒ³ÓĞµÄflash´óĞ¡µÄÊ±ºò£¬Ğ´ÈëÒ»´Î£¬·ÀÖ¹ÖØ¸´Ğ´Èë
     {
-        nag_request_flash_write(1);
-        return;
+        flash_Nag_Write();
+        N.size = 0;                                   // Ë÷ÒıÖØÖÃÎª0´ÓÏÂÒ»¸ö»º³åÇø¿ªÊ¼¶ÁÈ¡
+        N.Flash_page_index--;                         // flashÒ³ÃæË÷Òı¼õĞ¡
+        zf_assert(N.Flash_page_index > Nag_End_Page); // ·ÀÖ¹Ô½½ç±¨´í
     }
 
-    if (N.size >= NAG_POINTS_PER_PAGE) // ç¼“å­˜å·²æ»¡é¡µä¸­çš„flashå¤§å°æ—¶æ‰å†™å…¥ä¸€æ¬¡ï¼Œé˜²æ­¢é‡å¤å†™å…¥
+    if (N.Mileage_All >= Nag_Set_mileage) // Ã¿¸ôNag_Set_mileage¼ÇÒ»´Î
     {
-        nag_request_flash_write(0);
-        return;
-    }
-
-    if (N.Mileage_All >= Nag_Set_mileage) // æ¯éš”Nag_Set_mileageè®°å½•ä¸€æ¬¡
-    {
-        int32 Save = (int32)(Nag_Yaw * 100);            // è·å–çš„åèˆªè§’æ”¾å¤§100å€ï¼Œæ­¤å¤„ä½¿ç”¨Floatç±»å‹è½¬æ¢å­˜å‚¨
-        flash_union_buffer[N.size++].int32_type = Save; // å°†åèˆªè§’å†™å…¥ç¼“å†²åŒº
+        int32 Save = (int32)(Nag_Yaw * 100);            // ¶ÁÈ¡µÄÆ«º½½Ç·Å´ó100±¶£¬±ÜÃâÊ¹ÓÃFloatÀàĞÍÀ´´æ´¢
+        flash_union_buffer[N.size++].int32_type = Save; // ½«Æ«º½½ÇĞ´Èë»º³åÇø
         N.Save_index++;
         // printf("Save=%f\r\n", (float)Save / 100.0f);
-
-
-        if (N.Mileage_All > 0)  //5CMä¸ºä¸€ä¸ªè®°å½•åŒºé—´ï¼Œæ¥ç€ä¸‹ä¸€ä¸ªåŒºé—´ç¡®ä¿ä¸‹ä¸€ä¸ªåªè®°å½•5CM,æ‰§è¡Œæ•°å€¼ä¿®æ­£
-            N.Mileage_All -= Nag_Set_mileage; // å‡å»èµ°è¿‡é‡Œç¨‹è®¡å//ä¿å­˜åˆ°flash
+        
+        
+        if (N.Mileage_All > 0)  //5CMÎªÒ»¸öÖÜÆÚ£¬µ«ÊÇÒ»¸öÖÜÆÚÈ·²»Ò»¶¨Ö»ÅÜÁË5CM,ËùÒÔÓĞÓàÊı´¦Àí
+            N.Mileage_All -= Nag_Set_mileage; // ÖØÖÃÀú³Ì¼ÆÊı×Ö//±£´æµ½flash
         else
-            N.Mileage_All += Nag_Set_mileage; // ä¿®æ­£
-
-        if (N.Save_index >= path_capacity)
-        {
-            nag_request_flash_write(1);
-        }
-        else if (N.size >= NAG_POINTS_PER_PAGE)
-        {
-            nag_request_flash_write(0);
-        }
+            N.Mileage_All += Nag_Set_mileage; // µ¹³µ
     }
 }
-// åèˆªè§’è·Ÿéš
+// Æ«º½½Ç¸´ÏÖ
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     åèˆªè§’è·Ÿéš
-// å‡½æ•°è¯´æ˜ï¼š     è¯»å–flashä¸­å­˜å‚¨çš„YAW
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ç”¨æˆ·ä¸è¦è°ƒç”¨
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     Æ«º½½Ç¸´ÏÖ
+// ²ÎÊıËµÃ÷     ¶ÁÈ¡flashÖĞ´æ´¢µÄYAW
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ÓÃ»§ÎŞĞèµ÷ÓÃ
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void Run_Nag_GPS(void)
 {
-    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // é‡Œç¨‹è®¡å–å€¼ï¼Œé‡‡ç”¨å·¦å³ç¼–ç å™¨å¹³å‡å€¼ï¼Œè¯¥é‡Œç¨‹è®¡èƒ½è¢«ç¼–ç å™¨æ›´æ–°
+    N.Mileage_All += (R_Mileage + L_Mileage) * 0.5f; // Àú³Ì¼Æ¶ÁÈ¡£¬×óÓÒ±àÂëÆ÷£¬Ê¹ÓÃ¸¡µãÊıµÄ»°Îó²îÄÜ±£ÁôÏÂÀ´
     uint16 prospect = 0;
-
-    if (N.Save_index < 2)
-    {
-        nag_stop_replay();
-        return;
-    }
-
     if (N.Mileage_All >= Nag_Set_mileage)
     {
         if (N.Run_index > N.Save_index - 2)
         {
-            nag_stop_replay();
+            N.Nag_Stop_f++;
             return;
         }
-        N.Run_index++; // æ— éœ€éœ€è¦ç²¾ç¡®åœˆæ•°ï¼Œç›´æ¥æŠŠè¿è¡Œèµ‹å€¼ä¸º0.
+        N.Run_index++; // Èç¹ûĞèÒªÅÜÁ½È¦¿ÉÒÔÖ±½Ó°ÑÕâ¸ö¸³ÖµÎª0.
 
-        prospect = N.Run_index; // å‰ç»
+        prospect = N.Run_index; // Ç°Õ°
         if (prospect > N.Save_index - 2)
-            prospect = N.Save_index - 2;             // è¶Šç•Œä¿æŠ¤
-        N.Angle_Run = (Nav_read[prospect] / 100.0f); // è¯»å–çš„åèˆªè§’è·Ÿéšï¼Œé™¤ä»¥100è¿˜åŸ
+            prospect = N.Save_index - 2;             // Ô½½ç±£»¤
+        N.Angle_Run = (Nav_read[prospect] / 100.0f); // ¶ÁÈ¡µÄÆ«º½½Ç¸´ÏÖ£¬³ıÒÔ100»¹Ô­
         // printf("N.Angle_Run=%f,N.Save_index=%d, N.Flash_page_index=%d,N.Nag_Stop_f=%d,N.Run_index=%d\r\n", N.Angle_Run, N.Save_index, N.Flash_page_index, N.Nag_Stop_f, N.Run_index);
         if (N.Mileage_All > 0)
-            N.Mileage_All -= Nag_Set_mileage; // å‡å»èµ°è¿‡é‡Œç¨‹è®¡å//ä¿å­˜åˆ°flash
+            N.Mileage_All -= Nag_Set_mileage; // ÖØÖÃÀú³Ì¼ÆÊı×Ö//±£´æµ½flash
         else
-            N.Mileage_All += Nag_Set_mileage; // ä¿®æ­£
+            N.Mileage_All += Nag_Set_mileage; // µ¹³µ
     }
 }
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æƒ¯å¯¼ç³»ç»Ÿåˆå§‹åŒ–
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ä¸»å‡½æ•°ä¸­æ‰§è¡Œå¼€å§‹
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     ¹ßµ¼²ÎÊı³õÊ¼»¯
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ·ÅÈë³ÌĞòÖ´ĞĞ¿ªÊ¼
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void Init_Nag(void)
 {
@@ -412,236 +224,115 @@ void Init_Nag(void)
     flash_buffer_clear();
 }
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     æƒ¯å¯¼æ§åˆ¶æ‰§è¡Œå‡½æ•°
-// å‡½æ•°è¯´æ˜ï¼š     index           ç´¢å¼•
-// å‡½æ•°è¯´æ˜ï¼š     type            è®¾ç½®å€¼
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     ä¸­æ–­ä¸­è°ƒç”¨
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     ¹ßĞÔµ¼º½Ö´ĞĞº¯Êı
+// ²ÎÊıËµÃ÷     index           Ë÷Òı
+// ²ÎÊıËµÃ÷     type            ÀàĞÍÖµ
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ·ÅÈëÖĞ¶ÏÖĞ
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void Nag_System(void)
 {
-    // ä¿æŠ¤åˆ¤æ–­
+    // ÎÀ±£»¤
     if (!N.Nag_SystemRun_Index || N.Nag_Stop_f)
         return;
 
     switch (N.Nag_SystemRun_Index)
     {
-    case NAG_RUN_RECORD:
-        Nag_Read(); // 1æ˜¯è¯»å–
+    case 1:
+        Nag_Read(); // 1ÊÇ¶ÁÈ¡
         break;
-    case NAG_RUN_PRELOAD:
-        nag_request_flash_read();
+    case 2:
+        fuxian = 1;
+        target_speed = user_set_speed; // ¸´ÏÖÊ±Ê¹ÓÃÓÃ»§ÉèÖÃµÄÄ¿±êËÙ¶È
+        NagFlashRead();
         break;
-    case NAG_RUN_REPLAY:
+    case 3:
         Nag_Run();
         break;
     }
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// å‡½æ•°åŠŸèƒ½ï¼š     ä¸€æ¬¡æ€§è¯»å–ï¼ˆåªè¯»å–ä¸€æ¬¡ï¼‰
-// å‡½æ•°è¯´æ˜ï¼š     index           ç´¢å¼•
-// å‡½æ•°è¯´æ˜ï¼š     type            è®¾ç½®å€¼
-// è¿”å›å‚æ•°ï¼š     void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š     æƒ¯å¯¼æ§åˆ¶ä¸­ç›´æ¥è°ƒç”¨ï¼Œdemoä¸­ç¤ºä¾‹å‡½æ•°
-// å¤‡æ³¨ä¿¡æ¯
+// º¯Êı¼ò½é     Ò»´ÎĞÔ¶ÁÈ¡³ÌĞò£¬Ö»¶ÁÈ¡Ò»´Î£¡
+// ²ÎÊıËµÃ÷     index           Ë÷Òı
+// ²ÎÊıËµÃ÷     type            ÀàĞÍÖµ
+// ·µ»Ø²ÎÊı     void
+// Ê¹ÓÃÊ¾Àı     ·ÅÈëÖ÷º¯ÊıÖ±½Óµ÷ÓÃ£¬demoÖĞÓĞÊ¾Àı¡£
+// ±¸×¢ĞÅÏ¢
 //-------------------------------------------------------------------------------------------------------------------
 void NagFlashRead(void)
 {
-    uint16 path_capacity;
-
     if (N.Save_state)
         return;
+    flash_Nag_Read();
+    uint8 page_trun = 0;
 
-    N.Save_index = Get_Path_SaveIndex(Nag_PathSelect);
-    if (N.Save_index < 2)
+    for (int index = 0; index <= N.Save_index; index++)
     {
-        N.Save_state = 1;
-        N.Nag_SystemRun_Index = NAG_RUN_IDLE;
-        nag_stop_replay();
-        return;
+        if (index >= N.Save_index)
+        {
+            N.Save_state = 1;
+            break;
+        }
+        int temp_index = index - (500 * page_trun);
+        if (temp_index > MaxSize) // µ±´óÓÚÉè¶¨µÄflsh´óĞ¡µÄÊ±ºò
+        {
+            N.Flash_page_index--; // Ò³Ãæ¼õÉÙ
+            page_trun++;
+            flash_Nag_Read(); // ÖØĞÂ¶ÁÈ¡
+        }
+        Nav_read[index] = flash_union_buffer[index - (500 * page_trun)].int32_type;
+         printf("Nav_read=%f\r\n", Nav_read[index]);
     }
-
-    path_capacity = get_path_capacity(Nag_PathSelect);
-    if (N.Save_index > path_capacity)
-    {
-        N.Save_index = path_capacity;
-    }
-
-    nag_read_count    = (N.Save_index > Read_MaxSize) ? Read_MaxSize : N.Save_index;
-    nag_read_copied   = 0;
-    nag_read_page     = get_path_start_page(Nag_PathSelect);
-    nag_read_end_page = get_path_end_page(Nag_PathSelect);
-    nag_flash_read_active = 1;
-}
-
-static void nag_finish_flash_read(void)
-{
-    nag_flash_read_active = 0;
-    N.Save_index = nag_read_copied;
-    N.Save_state = 1;
-
-    if (N.Save_index >= 2)
-    {
-        N.Run_index           = 0;
-        N.Mileage_All         = 0.0f;
-        N.Final_Out           = 0.0f;
-        N.Nag_Stop_f          = false;
-        N.Nag_SystemRun_Index = NAG_RUN_REPLAY;
-        fuxian                = 1;
-        target_speed          = user_set_speed;
-    }
-    else
-    {
-        N.Nag_SystemRun_Index = NAG_RUN_IDLE;
-        nag_stop_replay();
-    }
-}
-
-static void nag_flash_read_step(void)
-{
-    uint16 page_index = 0;
-
-    if (!nag_flash_read_active)
-        return;
-
-    if ((nag_read_copied >= nag_read_count) || (nag_read_page < nag_read_end_page))
-    {
-        nag_finish_flash_read();
-        return;
-    }
-
-    flash_buffer_clear();
-    if (!flash_check(0, nag_read_page))
-    {
-        nag_finish_flash_read();
-        return;
-    }
-
-    flash_read_page_to_buffer(0, nag_read_page, FLASH_PAGE_LENGTH);
-
-    while ((page_index < NAG_POINTS_PER_PAGE) && (nag_read_copied < nag_read_count))
-    {
-        Nav_read[nag_read_copied++] = flash_union_buffer[page_index++].int32_type;
-    }
-
-    if (nag_read_copied >= nag_read_count)
-    {
-        nag_finish_flash_read();
-        return;
-    }
-
-    if (nag_read_page > nag_read_end_page)
-    {
-        nag_read_page--;
-    }
+    N.Nag_SystemRun_Index++;
 }
 
 /**
- * @brief å¼€å¯ä¸€æ¬¡æƒ¯å¯¼è®°å½•ï¼Œå®Œæˆåç»ˆæ­¢è®°å½•ï¼Œå®Œæˆåå¯åŠ¨æƒ¯å¯¼å›æ”¾
- *N.Save_index = 0; // è°ƒè¯•ç”¨ï¼Œé˜²æ­¢è¶Šç•Œ
+ * @brief °´¼üÒ»Æô¶¯¹ßµ¼Â¼ÖÆ£¬°´¼üÈıÖĞÖ¹Â¼ÖÆ£¬°´¼ü¶şÆô¶¯¹ßµ¼¸´ÏÖ
+ *N.Save_index = 0; // Ë÷ÒıÖØÖÃ£¬·ÀÖ¹Ô½½ç
  */
 uint8 fuxian = 0;
 void control_navigation(void)
 {
-    if (key1_flag == 1) // æŒ‰é”®1æ§åˆ¶æƒ¯å¯¼å¼€å§‹æˆ–åœæ­¢
+    if (key1_flag == 1) // °´¼ü1¿ØÖÆ¹ßµ¼Æô¶¯ÓëÍ£Ö¹
     {
-        N.Nag_SystemRun_Index = NAG_RUN_RECORD; // å¼€å¯æƒ¯å¯¼è¯»å–è®°å½•
+        N.Nag_SystemRun_Index = 1; // Æô¶¯¹ßµ¼¶ÁÈ¡ÓëÔËĞĞ
         key1_flag = 0;
     }
-    if (key3_flag == 1 && N.Nag_SystemRun_Index == NAG_RUN_RECORD) // æŒ‰é”®3æ§åˆ¶æƒ¯å¯¼è¯»å–è®°å½•
+    if (key3_flag == 1 && N.Nag_SystemRun_Index == 1) // °´¼ü3¿ØÖÆ¹ßµ¼¶ÁÈ¡ÓëÔËĞĞ
     {
-        N.End_f = 1; // ç»ˆæ­¢æƒ¯å¯¼è¿›è¡Œï¼Œåœæ­¢é‡‡é›†
+        N.End_f = 1; // ÖĞÖ¹¹ßµ¼ÔËĞĞ£¬Í£Ö¹²É¼¯
         key3_flag = 0;
     }
-    if (key2_flag == 1) // æŒ‰é”®2æ§åˆ¶æƒ¯å¯¼å›æ”¾å¼€å§‹
+    if (key2_flag == 1) // °´¼ü2¿ØÖÆ¹ßµ¼²ÎÊı³õÊ¼»¯
     {
-        Init_Nag_Path(Nag_PathSelect);
-        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD; // å¼€å¯æƒ¯å¯¼
-        fuxian = 0;                    // è½¨è¿¹æ¸…é›¶
-        target_speed = 0;              // è·¯å¾„è¯»å–å®Œæˆä¹‹åå†èµ‹å€¼
+        N.Nag_SystemRun_Index = 2;     // ¸´ÏÖ¹ßµ¼
+        fuxian = 1;                    // ¹ì¼£»·¿ªÆô
+        target_speed = user_set_speed; // ¸´ÏÖÊ±Ê¹ÓÃÓÃ»§ÉèÖÃµÄÄ¿±êËÙ¶È
         key2_flag = 0;
     }
-    // æŒ‰é”®4æ§åˆ¶ç›®æ ‡ç›®æ ‡é€Ÿåº¦çš„é€’å¢ï¼Œæ¯æŒ‰é”®ä¸€æ¬¡é€’å¢50
+    // °´¼üËÄ¿ØÖÆÄ¿±êËÙ¶Èµ÷Õû£¬°´Ò»´ÎÔö¼Ó50
     if (key4_flag == 1)
     {
         user_set_speed += 50;
         if (user_set_speed > 700)
-            user_set_speed = 50; // è¶…è¿‡700å›åˆ°50
+            user_set_speed = 50; // ³¬¹ı700»Øµ½50
         key4_flag = 0;
     }
 
-    // if (N.Nag_SystemRun_Index == NAG_RUN_PRELOAD)
+    // if (N.Nag_SystemRun_Index == 2)
     // {
     //     NagFlashRead();
     // }
 }
 
-void Nag_Service(void)
-{
-    if (nag_flash_write_pending)
-    {
-        uint8 is_final = nag_flash_write_final;
-        uint8 end_page = get_path_end_page(Nag_PathSelect);
-        uint8 wrote_page = 0;
 
-        if (N.size > 0)
-        {
-            flash_Nag_Write();
-            wrote_page = 1;
-        }
-
-        if (is_final && (!wrote_page || N.End_f != 1))
-        {
-            flash_Nag_Write_Meta();
-        }
-
-        if (is_final)
-        {
-            N.size                = 0;
-            N.End_f               = 2;
-            N.Nag_SystemRun_Index = NAG_RUN_IDLE;
-            flash_buffer_clear();
-        }
-        else if (N.Flash_page_index <= end_page)
-        {
-            N.size                = 0;
-            N.End_f               = 2;
-            N.Nag_SystemRun_Index = NAG_RUN_IDLE;
-            N.Nag_Stop_f          = true;
-            flash_Nag_Write_Meta();
-            flash_buffer_clear();
-        }
-        else
-        {
-            N.size = 0;
-            N.Flash_page_index--;
-            flash_buffer_clear();
-        }
-
-        nag_flash_write_final   = 0;
-        nag_flash_write_pending = 0;
-    }
-
-    if (nag_flash_read_pending)
-    {
-        NagFlashRead();
-        nag_flash_read_pending = 0;
-    }
-
-    if (nag_flash_read_active)
-    {
-        nag_flash_read_step();
-    }
-}
-
-
-/**************************æƒ¯å¯¼è¯»å–Flash********************************/
+/**************************¹ßµ¼´æÈ¡Flash********************************/
 void flash_Nag_Write(void)
 {
-    if (N.size == 0)
-        return;
+  
+
 
     if (flash_check(0, N.Flash_page_index))
         flash_erase_page(0, N.Flash_page_index);
@@ -649,16 +340,38 @@ void flash_Nag_Write(void)
     flash_write_page_from_buffer(0, N.Flash_page_index, FLASH_PAGE_LENGTH);
     if (N.End_f == 1)
     {
-        flash_Nag_Write_Meta();
-    }
+       
 
+        flash_union_buffer[MaxSize + 2].uint32_type = N.Save_index;
+        
+        flash_write_page_from_buffer(0, Nag_End_Page, FLASH_PAGE_LENGTH);
+
+         
+    }
+     // µ÷ÊÔ£º´òÓ¡»º³åÇøÇ°5ÌõÊı¾İ
+    for (int i = 0; i < 5 && i < N.size; i++) {
+        printf("Before write: buffer[%d] = %d (angle=%.2f)\n", 
+               i, flash_union_buffer[i].int32_type, 
+               flash_union_buffer[i].int32_type / 100.0f);
+    }
+    printf("N.size=%d, N.Save_index=%d\n", N.size, N.Save_index);
+    
     flash_buffer_clear();
+    gpio_set_level(BUZZER_PIN,1);
 }
 
 void flash_Nag_Read(void)
 {
     flash_buffer_clear();
-    N.Save_index = Get_Path_SaveIndex(Nag_PathSelect);
+    static uint8 Index_R_f = 0;
+
+    if (0 == Index_R_f)
+    {
+        flash_read_page_to_buffer(0, Nag_End_Page, FLASH_PAGE_LENGTH);
+        N.Save_index = flash_union_buffer[MaxSize + 2].uint32_type;
+        Index_R_f = 1;
+        flash_buffer_clear();
+    }
     if (flash_check(0, N.Flash_page_index))
     {
         flash_read_page_to_buffer(0, N.Flash_page_index, FLASH_PAGE_LENGTH);
@@ -667,18 +380,18 @@ void flash_Nag_Read(void)
 
 
 /**
- * @brief è§’åº¦å¤„ç†è‡³-180~180åº¦èŒƒå›´å†…
+ * @brief ½Ç¶È´¦Àíµ½-180~180¶È·¶Î§ÄÚ
  *
- * @param angle è¾“å…¥è§’åº¦
- * @return double è¿”å›è§’åº¦
+ * @param angle ÊäÈë½Ç¶È
+ * @return double ´¦Àíºó½Ç¶È
  */
-float angle_plan(float angle)
+double angle_plan(double angle)
 {
-    while (angle > 180.0f)
-        angle -= 360.0f;
+    while (angle > 180.0)
+        angle -= 360.0;
 
-    while (angle <= -180.0f)
-        angle += 360.0f;
+    while (angle <= -180.0)
+        angle += 360.0;
 
     return angle;
 }

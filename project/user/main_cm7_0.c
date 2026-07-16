@@ -1,133 +1,119 @@
 /*********************************************************************************************************************
-* CYT4BB Opensourec Library å³ï¼ˆ CYT4BB å¼€æºåº“ï¼‰æ˜¯ä¸€ä¸ªåŸºäºå®˜æ–¹ SDK æ¥å£çš„ç¬¬ä¸‰æ–¹å¼€æºåº“
-* Copyright (c) 2022 SEEKFREE é€é£ç§‘æŠ€
+* CYT4BB Opensourec Library ¼´£¨ CYT4BB ¿ªÔ´¿â£©ÊÇÒ»¸ö»ùÓÚ¹Ù·½ SDK ½Ó¿ÚµÄµÚÈı·½¿ªÔ´¿â
+* Copyright (c) 2022 SEEKFREE Öğ·É¿Æ¼¼
 *
-* æœ¬æ–‡ä»¶æ˜¯ CYT4BB å¼€æºåº“çš„ä¸€éƒ¨åˆ†
+* ±¾ÎÄ¼şÊÇ CYT4BB ¿ªÔ´¿âµÄÒ»²¿·Ö
 *
-* CYT4BB å¼€æºåº“ æ˜¯å…è´¹è½¯ä»¶
-* æ‚¨å¯ä»¥æ ¹æ®è‡ªç”±è½¯ä»¶åŸºé‡‘ä¼šå‘å¸ƒçš„ GPLï¼ˆGNU General Public Licenseï¼Œå³ GNUé€šç”¨å…¬å…±è®¸å¯è¯ï¼‰çš„æ¡æ¬¾
-* å³ GPL çš„ç¬¬3ç‰ˆï¼ˆå³ GPL3.0ï¼‰ï¼Œæˆ–ï¼ˆæ‚¨é€‰æ‹©çš„ï¼‰ä»»ä½•åæ¥çš„ç‰ˆæœ¬ï¼Œé‡æ–°å‘å¸ƒå’Œ/æˆ–ä¿®æ”¹å®ƒ
+* CYT4BB ¿ªÔ´¿â ÊÇÃâ·ÑÈí¼ş
+* Äú¿ÉÒÔ¸ù¾İ×ÔÓÉÈí¼ş»ù½ğ»á·¢²¼µÄ GPL£¨GNU General Public License£¬¼´ GNUÍ¨ÓÃ¹«¹²Ğí¿ÉÖ¤£©µÄÌõ¿î
+* ¼´ GPL µÄµÚ3°æ£¨¼´ GPL3.0£©»ò£¨ÄúÑ¡ÔñµÄ£©ÈÎºÎºóÀ´µÄ°æ±¾£¬ÖØĞÂ·¢²¼ºÍ/»òĞŞ¸ÄËü
 *
-* æœ¬å¼€æºåº“çš„å‘å¸ƒæ˜¯å¸Œæœ›å®ƒèƒ½å‘æŒ¥ä½œç”¨ï¼Œä½†å¹¶æœªå¯¹å…¶ä½œä»»ä½•çš„ä¿è¯
-* ç”šè‡³å¹¶æœªéšå«ä»»ä½•é€‚é”€ç‰¹å®šç”¨é€”çš„ä¿è¯
-* æ›´å¤šç»†èŠ‚è¯·å‚è§ GPL
+* ±¾¿ªÔ´¿âµÄ·¢²¼ÊÇÏ£ÍûËüÄÜ·¢»Ó×÷ÓÃ£¬µ«²¢Î´¶ÔÆä×÷ÈÎºÎµÄ±£Ö¤
+* ÉõÖÁÃ»ÓĞÒşº¬µÄÊÊÏúĞÔ»òÊÊºÏÌØ¶¨ÓÃÍ¾µÄ±£Ö¤
+* ¸ü¶àÏ¸½ÚÇë²Î¼û GPL
 *
-* æ‚¨åº”è¯¥åœ¨æ”¶åˆ°æœ¬å¼€æºåº“çš„åŒæ—¶ä¹Ÿæ”¶åˆ°ä¸€ä»½ GPL çš„å‰¯æœ¬
-* å¦‚æœæ²¡æœ‰ï¼Œè¯·å‚é˜…<https://www.gnu.org/licenses/>
+* ÄúÓ¦¸ÃÔÚÊÕµ½±¾¿ªÔ´¿âµÄÍ¬Ê±ÊÕµ½Ò»·İ GPL µÄ¸±±¾
+* Èç¹ûÃ»ÓĞ£¬Çë²ÎÔÄ<https://www.gnu.org/licenses/>
 *
-* é¢å¤–æ³¨æ˜ï¼š
-* æœ¬å¼€æºåº“ä½¿ç”¨ GPL3.0 å¼€æºåè®®ï¼ˆé™„ä»¶åè®®ï¼‰ ä»¥ä¸Šä¸ºç”³æ˜ç‰ˆæœ¬ï¼Œä»¥ä¸‹ä¸ºæ­£æ–‡å†…å®¹
-* æ­£æ–‡æœ¬åº“çš„è§£é‡Šæƒä¸ºä¸­æ–‡ç‰ˆæœ¬ï¼Œä»»ä½•å†²çªä»¥ä¸­æ–‡ç‰ˆä¸ºå‡†
-* æ­£å¼åè®®æ–‡æœ¬å‚è§ libraries æ–‡ä»¶å¤¹ä¸‹çš„ GPL3_permission_statement.txt æ–‡ä»¶
-* è®¸å¯æ–‡æœ¬å‚è§ libraries æ–‡ä»¶å¤¹ä¸‹çš„ LICENSE æ–‡ä»¶
-* æ¬¢è¿å„ä½ä½¿ç”¨å¹¶ä¼ æ’­æœ¬ç¨‹åºï¼Œä½†è¯·å‹¿åˆ é™¤æˆ–ä¿®æ”¹ä»¥ä¸‹å†…å®¹
+* ¶îÍâ×¢Ã÷£º
+* ±¾¿ªÔ´¿âÊ¹ÓÃ GPL3.0 ¿ªÔ´Ğí¿ÉÖ¤Ğ­Òé ÒÔÉÏĞí¿ÉÉêÃ÷ÎªÒëÎÄ°æ±¾
+* Ğí¿ÉÉêÃ÷Ó¢ÎÄ°æÔÚ libraries/doc ÎÄ¼ş¼ĞÏÂµÄ GPL3_permission_statement.txt ÎÄ¼şÖĞ
+* Ğí¿ÉÖ¤¸±±¾ÔÚ libraries ÎÄ¼ş¼ĞÏÂ ¼´¸ÃÎÄ¼ş¼ĞÏÂµÄ LICENSE ÎÄ¼ş
+* »¶Ó­¸÷Î»Ê¹ÓÃ²¢´«²¥±¾³ÌĞò µ«ĞŞ¸ÄÄÚÈİÊ±±ØĞë±£ÁôÖğ·É¿Æ¼¼µÄ°æÈ¨ÉùÃ÷£¨¼´±¾ÉùÃ÷£©
 *
-* æ–‡ä»¶åç§°          main_cm7_0
-* å…¬å¸åç§°          æˆéƒ½é€é£ç§‘æŠ€æœ‰é™è´£ä»»å…¬å¸
-* ç‰ˆæœ¬ä¿¡æ¯          æŸ¥çœ‹ libraries/doc æ–‡ä»¶å¤¹å†… version æ–‡ä»¶ ç‰ˆæœ¬è¯´æ˜
-* å¼€å‘ç¯å¢ƒ          IAR 9.40.1
-* é€‚ç”¨å¹³å°          CYT4BB
-* åº—é“ºé“¾æ¥          https://seekfree.taobao.com/
+* ÎÄ¼şÃû³Æ          main_cm7_0
+* ¹«Ë¾Ãû³Æ          ³É¶¼Öğ·É¿Æ¼¼ÓĞÏŞ¹«Ë¾
+* °æ±¾ĞÅÏ¢          ²é¿´ libraries/doc ÎÄ¼ş¼ĞÄÚ version ÎÄ¼ş °æ±¾ËµÃ÷
+* ¿ª·¢»·¾³          IAR 9.40.1
+* ÊÊÓÃÆ½Ì¨          CYT4BB
+* µêÆÌÁ´½Ó          https://seekfree.taobao.com/
 *
-* ä¿®æ”¹è®°å½•
-* æ—¥æœŸ              ä½œè€…                å¤‡æ³¨
+* ĞŞ¸Ä¼ÇÂ¼
+* ÈÕÆÚ              ×÷Õß                ±¸×¢
 * 2024-1-4       pudding            first version
 ********************************************************************************************************************/
 
 #include "zf_common_headfile.h"
-#include "gnss_cache.h"
+// ´ò¿ªĞÂµÄ¹¤³Ì»òÕß¹¤³ÌÒÆ¶¯ÁËÎ»ÖÃÎñ±ØÖ´ĞĞÒÔÏÂ²Ù×÷
+// µÚÒ»²½ ¹Ø±ÕÉÏÃæËùÓĞ´ò¿ªµÄÎÄ¼ş
+// µÚ¶ş²½ project->clean  µÈ´ıÏÂ·½½ø¶ÈÌõ×ßÍê
 
-// **************************** ä¸»å‡½æ•° ****************************
+// ±¾Àı³ÌÊÇ¿ªÔ´¿â¿Õ¹¤³Ì ¿ÉÓÃ×÷ÒÆÖ²»òÕß²âÊÔ¸÷ÀàÄÚÍâÉè
+// ±¾Àı³ÌÊÇ¿ªÔ´¿â¿Õ¹¤³Ì ¿ÉÓÃ×÷ÒÆÖ²»òÕß²âÊÔ¸÷ÀàÄÚÍâÉè
+// ±¾Àı³ÌÊÇ¿ªÔ´¿â¿Õ¹¤³Ì ¿ÉÓÃ×÷ÒÆÖ²»òÕß²âÊÔ¸÷ÀàÄÚÍâÉè
+
+// **************************** ´úÂëÇøÓò ****************************
 
 
 int main(void)
 {
-    clock_init(SYSTEM_CLOCK_250M); 	// æ—¶é’Ÿé…ç½®ï¼Œç³»ç»Ÿåˆå§‹åŒ–ã€ä¸å¯åˆ é™¤ã€‘
-    debug_init();                       // ä¸²å£è°ƒè¯•åˆå§‹åŒ–
-    // æ­¤å¤„ç”¨æˆ·å¯ä»¥ç¼–å†™ ç”¨æˆ·è‡ªå·±çš„åˆå§‹åŒ–ä»£ç   ä¾‹å¦‚åˆå§‹åŒ–å¤–è®¾ç­‰
-
+    clock_init(SYSTEM_CLOCK_250M); 	// Ê±ÖÓÅäÖÃ¼°ÏµÍ³³õÊ¼»¯<Îñ±Ø±£Áô>
+    debug_init();                       // µ÷ÊÔ´®¿ÚĞÅÏ¢³õÊ¼»¯
+    // ´Ë´¦±àĞ´ÓÃ»§´úÂë ÀıÈçÍâÉè³õÊ¼»¯´úÂëµÈ
+    
     BUZZER_init();
 //    imu963ra_init();
 //    imu660ra_init();
       imu660rb_init();
 
-
+    
     flash_init();
     Init_Nag();
-
-    yaw_fusion_init();
-    gnss_init(TAU1201);
-    gnss_auto_start();
-
+    
     small_driver_uart_init();
-    uart_receiver_init();
-    remote_ctrl_init();
     balance_cascade_init();
     steer_control_init();
     ips_init(IPS200_TYPE_SPI);
     Key_init();
     system_delay_ms(1000);
-
-
-
+    
+    
+    
     pit_ms_init(PIT_CH0,1);
     pit_ms_init(PIT_CH1,5);
 
-    BUZZER_check(50);                       // èœ‚é¸£å™¨è‡ªæ£€
+    BUZZER_check(50);                       //×Ô¼ì
 
-
-
-    // æ­¤å¤„ç”¨æˆ·å¯ä»¥ç¼–å†™ ç”¨æˆ·è‡ªå·±çš„åˆå§‹åŒ–ä»£ç   ä¾‹å¦‚åˆå§‹åŒ–å¤–è®¾ç­‰
+    
+    
+    // ´Ë´¦±àĞ´ÓÃ»§´úÂë ÀıÈçÍâÉè³õÊ¼»¯´úÂëµÈ
     while(true)
     {
-        // GPS æ•°æ®è§£æä¸ç¼“å­˜ä¿å­˜
-        if (gnss_flag)
-        {
-            gnss_flag = 0;
-            if (gnss_data_parse() == 0 && gnss.state == 1)
-            {
-                gnss_cache_struct cache;
-                cache.magic           = GNSS_CACHE_MAGIC;
-                cache.latitude_e7     = (int32)(gnss.latitude * 1e7);
-                cache.longitude_e7    = (int32)(gnss.longitude * 1e7);
-                cache.altitude_cm     = (int32)(gnss.height * 100.0f);
-                cache.ground_speed_cm = (int32)(gnss.speed * 100.0f);
-                cache.heading_deg     = (int16)(gnss.direction * 100.0f);
-                cache.year            = gnss.time.year;
-                cache.month           = gnss.time.month;
-                cache.day             = gnss.time.day;
-                cache.hour            = gnss.time.hour;
-                cache.minute          = gnss.time.minute;
-                cache.second          = gnss.time.second;
-                cache.satellite_used  = gnss.satellite_used;
-                cache.save_count      = 1;
-                memset(cache.reserved, 0, sizeof(cache.reserved));
-                gnss_cache_save(&cache);
-            }
-        }
+        // ´Ë´¦±àĞ´ĞèÒªÑ­»·Ö´ĞĞµÄ´úÂë
+//          CYT2_D_motor_ctrl(1000,1000);
+//      printf("%d,%d,%d\n",imu660rb_gyro_x, imu660rb_gyro_y, imu660rb_gyro_z);
+//        printf("%f,%f,%f\r\n",roll_balance_cascade.posture_value.pit, roll_balance_cascade.posture_value.rol, -roll_balance_cascade.posture_value.yaw);
+//        printf("%d,%d\r\n",motor_value.receive_left_speed_data , motor_value.receive_right_speed_data );
+//        printf("%d,%d\r\n",left_motor_duty ,right_motor_duty);
+//        printf("%f\r\n",Car.mileage);
 
-        Nag_Service();
+//      system_delay_ms(10);
+      
         Menu();
 
-        // æ­¤å¤„ç”¨æˆ·å¯ä»¥ç¼–å†™ éœ€è¦å¾ªç¯æ‰§è¡Œçš„ä»£ç 
+        // ´Ë´¦±àĞ´ĞèÒªÑ­»·Ö´ĞĞµÄ´úÂë
     }
 }
 
-void pit0_ch0_isr()                     // å®šæ—¶å™¨é€šé“ 0 å‘¨æœŸä¸­æ–­æœåŠ¡å‡½æ•°
+void pit0_ch0_isr()                     // ¶¨Ê±Æ÷Í¨µÀ 0 ÖÜÆÚÖĞ¶Ï·şÎñº¯Êı      
 {
     pit_isr_flag_clear(PIT_CH0);
-
+    
     pit_call_back();
-
+    
+//    imu660rb_get_gyro();                             // »ñÈ¡ IMU660RA ÍÓÂİÒÇÊı¾İ
+//    imu660rb_get_acc();                              // »ñÈ¡ IMU660RA ¼ÓËÙ¶È¼ÆÊı¾İ
+//    quaternion_module_calculate(&roll_balance_cascade); // ¼ÆËãËÄÔªÊı£¬¸üĞÂ×ËÌ¬Êı¾İ
+    
 }
 
-void pit0_ch1_isr()                     // å®šæ—¶å™¨é€šé“ 1 å‘¨æœŸä¸­æ–­æœåŠ¡å‡½æ•°
+void pit0_ch1_isr()                     // ¶¨Ê±Æ÷Í¨µÀ 1 ÖÜÆÚÖĞ¶Ï·şÎñº¯Êı      
 {
     pit_isr_flag_clear(PIT_CH1);
-
+    
     key_scan();
 }
 
 
 
-// **************************** ä¸»å‡½æ•° ****************************
+// **************************** ´úÂëÇøÓò ****************************

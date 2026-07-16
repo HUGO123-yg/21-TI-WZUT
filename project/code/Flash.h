@@ -1,40 +1,23 @@
-//*********************ç”¨æˆ·è®¾ç½®åŒºåŸŸ****************************//
+//*********************ÓÃ»§ÉèÖÃÇøÓò****************************//
 
 #include "zf_common_headfile.h"
 
-#define MaxSize 500 // flashå­˜å‚¨çš„æœ€å¤§é¡µé¢
+#define MaxSize 500 // flash´æ´¢µÄ×î´óÒ³Ãæ
 
-#define Read_MaxSize 10000 // æœ€å¤§è¯»å–è®¾ç½®ï¼Œ1wä¸ªåº”è¯¥æ˜¯å¤Ÿäº†
-#define NAG_POINTS_PER_PAGE       MaxSize
-#define NAG_META_SAVE_INDEX_OFFSET NAG_POINTS_PER_PAGE
-#define NAG_PATH_COUNT            3
-#define NAG_PATH1_META_SLOT       0
-#define NAG_PATH2_META_SLOT       1
-#define NAG_PATH3_META_SLOT       2
-#define NAG_META_MAGIC_OFFSET     (NAG_META_SAVE_INDEX_OFFSET + NAG_PATH_COUNT)
-#define NAG_META_VERSION_OFFSET   (NAG_META_MAGIC_OFFSET + 1)
-#define NAG_META_SAMPLE_CM_OFFSET (NAG_META_VERSION_OFFSET + 1)
-#define NAG_META_CHECKSUM_OFFSET  (NAG_META_SAMPLE_CM_OFFSET + 1)
-#define NAG_META_MAGIC            0x4E414731u
-#define NAG_META_VERSION          1u
+#define Read_MaxSize 10000 // ×î´ó¶ÁÈ¡ÉèÖÃ£¬1w¸öÓ¦¸ÃÊÇ¹»ÁË
 
-#define NAG_RUN_IDLE              0
-#define NAG_RUN_RECORD            1
-#define NAG_RUN_PRELOAD           2
-#define NAG_RUN_REPLAY            3
-
-// å‚æ•°èŒƒå›´ <0 - 95>
-#define Nag_End_Page 1    // flashä¸­æ­¢é¡µé¢
-#define Nag_Start_Page 95 // flahèµ·å§‹é¡µé¢
+// ²ÎÊı·¶Î§ <0 - 95>
+#define Nag_End_Page 1    // flashÖĞÖ¹Ò³Ãæ
+#define Nag_Start_Page 95 // flahÆğÊ¼Ò³Ãæ
 
 
-#define NAG_META_PAGE         1    // å…ƒæ•°æ®é¡µ (å­˜3æ¡è·¯å¾„çš„Save_index)
-#define NAG_PATH1_START       95   // è·¯å¾„1èµ·å§‹é¡µ
-#define NAG_PATH1_END         65   // è·¯å¾„1ç»“æŸé¡µ
-#define NAG_PATH2_START       64   // è·¯å¾„2èµ·å§‹é¡µ
-#define NAG_PATH2_END         34   // è·¯å¾„2ç»“æŸé¡µ
-#define NAG_PATH3_START       33   // è·¯å¾„3èµ·å§‹é¡µ
-#define NAG_PATH3_END         3    // è·¯å¾„3ç»“æŸé¡µ
+#define NAG_META_PAGE         1    // ÔªÊı¾İÒ³ (´æ3ÌõÂ·¾¶µÄSave_index)
+#define NAG_PATH1_START       95   // Â·¾¶1ÆğÊ¼Ò³
+#define NAG_PATH1_END         65   // Â·¾¶1½áÊøÒ³
+#define NAG_PATH2_START       64   // Â·¾¶2ÆğÊ¼Ò³
+#define NAG_PATH2_END         34   // Â·¾¶2½áÊøÒ³
+#define NAG_PATH3_START       33   // Â·¾¶3ÆğÊ¼Ò³
+#define NAG_PATH3_END         3    // Â·¾¶3½áÊøÒ³
 
 
 
@@ -42,57 +25,54 @@
 
 
 #define Nag_Set_mileage 5
-#define Nag_Prev 200            // å‰ç»
-#define Nag_Yaw  roll_balance_cascade.posture_value.yaw  // é™€èºä»ªè¯»å–å‡ºæ¥çš„åèˆªè§’
-#define R_Mileage Car.mileage_R // å³è½®é‡Œç¨‹
-#define L_Mileage Car.mileage_L // å·¦è½®é‡Œç¨‹
+#define Nag_Prev 200            // Ç°Õ°
+#define Nag_Yaw  roll_balance_cascade.posture_value.yaw  // ÍÓÂİÒÇ¶ÁÈ¡³öÀ´µÄÆ«º½½Ç
+#define R_Mileage Car.mileage_R // ÓÒÂÖÀï³Ì
+#define L_Mileage Car.mileage_L // ×óÂÖÀï³Ì
 //********************************************************//
 
 
 typedef struct
 {
-       float Final_Out;    // æœ€ç»ˆè¾“å‡º,æœ€ç»ˆåå·®ï¼Œ
-       float Mileage_All;  // é‡Œç¨‹è®¡æ•°ï¼Œå³ç¼–ç å™¨è®¡ç®—å‡ºæ¥è·‘è¿‡çš„è·ç¦»,5cmä¸ºå•ä½
-       float Angle_Run;    // è¯»å–çš„åèˆªè§’ï¼Œæ¨è½¦å¾—åˆ°çš„è§’åº¦
-       bool Nag_Stop_f;    // æƒ¯å¯¼ä¸­æ­¢flag
-       uint8 Flash_read_f; // æƒ¯å¯¼è¯»å–flag
-       uint16 size;        // æƒ¯å¯¼æ•°ç»„ç´¢å¼•é€šç”¨è®¡æ•°--å½“å‰ç¼“å†²åŒºå·²å­˜å…¥çš„æ•°æ®æ¡æ•°ï¼ˆä¹Ÿæ˜¯ä¸‹ä¸€ä¸ªè¦å†™å…¥çš„ä½ç½®ç´¢å¼•ï¼‰
+       float Final_Out;    // ×îÖÕÊä³ö,×îÖÕÆ«²î£¬
+       float Mileage_All;  // Àï³Ì¼ÆÊı£¬¼´±àÂëÆ÷¼ÆËã³öÀ´ÅÜ¹ıµÄ¾àÀë,5cmÎªµ¥Î»
+       float Angle_Run;    // ¶ÁÈ¡µÄÆ«º½½Ç£¬ÍÆ³µµÃµ½µÄ½Ç¶È
+       bool Nag_Stop_f;    // ¹ßµ¼ÖĞÖ¹flag
+       uint8 Flash_read_f; // ¹ßµ¼¶ÁÈ¡flag
+       uint16 size;        // ¹ßµ¼Êı×éË÷ÒıÍ¨ÓÃ¼ÆÊı--µ±Ç°»º³åÇøÒÑ´æÈëµÄÊı¾İÌõÊı£¨Ò²ÊÇÏÂÒ»¸öÒªĞ´ÈëµÄÎ»ÖÃË÷Òı£©
        uint16 Run_index;
        uint16 Save_count;
-       uint16 Save_index; // ä¿å­˜çš„flag
+       uint16 Save_index; // ±£´æµÄflag
        uint8 Save_state;
-       uint8 End_f; // ä¸­æ­¢flag
-       // ä¸flashç›¸å…³çš„
-       uint8 Flash_page_index;      // flashé¡µé¢ç´¢å¼•
-       uint8 Flash_Save_Page_Index; // flashä¿å­˜é¡µç ç´¢å¼•
-       uint8 Nag_SystemRun_Index;   // æƒ¯å¯¼æ‰§è¡Œç´¢å¼•
-       // æš‚æ—¶æœªå¼€å‘éƒ¨åˆ†
-       int Prev_mile[Nag_Prev]; // å‰ç»
+       uint8 End_f; // ÖĞÖ¹flag
+       // ÓëflashÏà¹ØµÄ
+       uint8 Flash_page_index;      // flashÒ³ÃæË÷Òı
+       uint8 Flash_Save_Page_Index; // flash±£´æÒ³ÂëË÷Òı
+       uint8 Nag_SystemRun_Index;   // ¹ßµ¼Ö´ĞĞË÷Òı
+       // ÔİÊ±Î´¿ª·¢²¿·Ö
+       int Prev_mile[Nag_Prev]; // Ç°Õ°
 } Nag;
 
-extern uint8 Nag_PathSelect;  // å½“å‰é€‰æ‹©çš„è·¯å¾„ç¼–å· (1/2/3)
+extern uint8 Nag_PathSelect;  // µ±Ç°Ñ¡ÔñµÄÂ·¾¶±àºÅ (1/2/3)
 
 
 extern uint8 fuxian;
-extern Nag N;                        // æ•´ä¸ªå˜é‡çš„ç»“æ„ä½“ï¼Œæ–¹ä¾¿å¼€å‘å’Œç§»æ¤
-extern float user_set_speed; // ç”¨æˆ·è®¾ç½®çš„ç›®æ ‡é€Ÿåº¦ï¼Œä»…ç”±æŒ‰é”®å››è°ƒæ•´
+extern Nag N;                        // Õû¸ö±äÁ¿µÄ½á¹¹Ìå£¬·½±ã¿ª·¢ºÍÒÆÖ²
+extern float user_set_speed; // ÓÃ»§ÉèÖÃµÄÄ¿±êËÙ¶È£¬½öÓÉ°´¼üËÄµ÷Õû
 extern float Nav_read[Read_MaxSize];
 
 void Run_Nag_Save(void);
 void flash_Nag_Write(void);
 void flash_Nag_Read(void);
 void Run_Nag_GPS(void);
-float angle_plan(float angle);
+double angle_plan(double angle);
 void NagFlashRead(void);
 void Init_Nag(void);
 void Nag_System(void);
-void Nag_Service(void);
 
-// ============== å¤šè·¯å¾„æ–°å¢æ¥å£ ==============
-void Init_Nag_Path(uint8 path_id);     // æŒ‰è·¯å¾„åˆå§‹åŒ–æƒ¯å¯¼ (è®¾ç½®Flash_page_index)
-void flash_Nag_Write_Meta(void);      // å†™å…¥å…ƒæ•°æ®é¡µ (3æ¡è·¯å¾„çš„Save_index)
-void flash_Nag_Read_Meta(void);
-void Nag_Clear_Path_Meta(uint8 path_id);
-// è¯»å–å…ƒæ•°æ®é¡µ
-uint16 Get_Path_SaveIndex(uint8 path_id); // è·å–æŒ‡å®šè·¯å¾„çš„Save_index
+// ============== ¶àÂ·¾¶ĞÂÔö½Ó¿Ú ==============
+void Init_Nag_Path(uint8 path_id);     // °´Â·¾¶³õÊ¼»¯¹ßµ¼ (ÉèÖÃFlash_page_index)
+void flash_Nag_Write_Meta(void);      // Ğ´ÈëÔªÊı¾İÒ³ (3ÌõÂ·¾¶µÄSave_index)
+void flash_Nag_Read_Meta(void);       // ¶ÁÈ¡ÔªÊı¾İÒ³
+uint16 Get_Path_SaveIndex(uint8 path_id); // »ñÈ¡Ö¸¶¨Â·¾¶µÄSave_index
 

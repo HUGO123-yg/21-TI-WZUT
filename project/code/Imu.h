@@ -1,153 +1,145 @@
-#ifndef CODE_IMU_H_
-#define CODE_IMU_H_
 
 #ifndef IMU_MODE
-#define IMU_MODE 1
-#endif
 
-#if IMU_MODE
-
-// é™€èºä»ªæ•°æ®è½¬æ¢ï¼Œå°†åŸå§‹æ•°æ®è½¬æ¢ä¸ºå¯¹åº”è½´çš„è§’é€Ÿåº¦
-//#define GYRO_DATA_X              (imu963ra_gyro_x)        // é™€èºä»ª X è½´åŸå§‹æ•°æ®
-//#define GYRO_DATA_Y              (-imu963ra_gyro_y)        // é™€èºä»ª Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define GYRO_DATA_Z              (-imu963ra_gyro_z)        // é™€èºä»ª Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define GYRO_TRANSITION_FACTOR   (14.3f)                 // é™€èºä»ªæ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/(Â°/s)ï¼‰
+// ÍÓÂİÒÇÊı¾İ×ª»»£¨Ô­Ê¼Êı¾İ×ª»»£©
+//#define GYRO_DATA_X              (imu963ra_gyro_x)        // ÍÓÂİÒÇ X ÖáÔ­Ê¼Êı¾İ
+//#define GYRO_DATA_Y              (-imu963ra_gyro_y)        // ÍÓÂİÒÇ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define GYRO_DATA_Z              (-imu963ra_gyro_z)        // ÍÓÂİÒÇ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define GYRO_TRANSITION_FACTOR   (14.3f)                 // ÍÓÂİÒÇÊı¾İ×ª»»ÏµÊı£¨LSB/(¡ã/s)£©
 //
-//// åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢
-//#define ACC_DATA_X               (imu963ra_acc_x)         // åŠ é€Ÿåº¦è®¡ X è½´åŸå§‹æ•°æ®
-//#define ACC_DATA_Y               (-imu963ra_acc_y)         // åŠ é€Ÿåº¦è®¡ Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define ACC_DATA_Z               (-imu963ra_acc_z)         // åŠ é€Ÿåº¦è®¡ Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define ACC_TRANSITION_FACTOR    (4098.0f)                 // åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/gï¼‰
+//// ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»
+//#define ACC_DATA_X               (imu963ra_acc_x)         // ¼ÓËÙ¶È¼Æ X ÖáÔ­Ê¼Êı¾İ
+//#define ACC_DATA_Y               (-imu963ra_acc_y)         // ¼ÓËÙ¶È¼Æ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define ACC_DATA_Z               (-imu963ra_acc_z)         // ¼ÓËÙ¶È¼Æ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define ACC_TRANSITION_FACTOR    (4098.0f)                 // ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»ÏµÊı£¨LSB/g£©
 
 
-//#define GYRO_DATA_X              (imu660ra_gyro_x)        // é™€èºä»ª X è½´åŸå§‹æ•°æ®
-//#define GYRO_DATA_Y              (-imu660ra_gyro_y)        // é™€èºä»ª Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define GYRO_DATA_Z              (-imu660ra_gyro_z)        // é™€èºä»ª Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define GYRO_TRANSITION_FACTOR   (16.384f)                 // é™€èºä»ªæ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/(Â°/s)ï¼‰
+//#define GYRO_DATA_X              (imu660ra_gyro_x)        // ÍÓÂİÒÇ X ÖáÔ­Ê¼Êı¾İ
+//#define GYRO_DATA_Y              (-imu660ra_gyro_y)        // ÍÓÂİÒÇ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define GYRO_DATA_Z              (-imu660ra_gyro_z)        // ÍÓÂİÒÇ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define GYRO_TRANSITION_FACTOR   (16.384f)                 // ÍÓÂİÒÇÊı¾İ×ª»»ÏµÊı£¨LSB/(¡ã/s)£©
 //
-//// åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢
-//#define ACC_DATA_X               (imu660ra_acc_x)         // åŠ é€Ÿåº¦è®¡ X è½´åŸå§‹æ•°æ®
-//#define ACC_DATA_Y               (-imu660ra_acc_y)         // åŠ é€Ÿåº¦è®¡ Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define ACC_DATA_Z               (-imu660ra_acc_z)         // åŠ é€Ÿåº¦è®¡ Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-//#define ACC_TRANSITION_FACTOR    (4096.0f)                 // åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/gï¼‰
+//// ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»
+//#define ACC_DATA_X               (imu660ra_acc_x)         // ¼ÓËÙ¶È¼Æ X ÖáÔ­Ê¼Êı¾İ
+//#define ACC_DATA_Y               (-imu660ra_acc_y)         // ¼ÓËÙ¶È¼Æ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define ACC_DATA_Z               (-imu660ra_acc_z)         // ¼ÓËÙ¶È¼Æ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+//#define ACC_TRANSITION_FACTOR    (4096.0f)                 // ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»ÏµÊı£¨LSB/g£©
 
-#define GYRO_DATA_X              (imu660rb_gyro_x)        // é™€èºä»ª X è½´åŸå§‹æ•°æ®
-#define GYRO_DATA_Y              (-imu660rb_gyro_y)        // é™€èºä»ª Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-#define GYRO_DATA_Z              (-imu660rb_gyro_z)        // é™€èºä»ª Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-#define GYRO_TRANSITION_FACTOR   (14.3f)                 // é™€èºä»ªæ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/(Â°/s)ï¼‰
+#define GYRO_DATA_X              (imu660rb_gyro_x)        // ÍÓÂİÒÇ X ÖáÔ­Ê¼Êı¾İ
+#define GYRO_DATA_Y              (-imu660rb_gyro_y)        // ÍÓÂİÒÇ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+#define GYRO_DATA_Z              (-imu660rb_gyro_z)        // ÍÓÂİÒÇ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+#define GYRO_TRANSITION_FACTOR   (14.3f)                 // ÍÓÂİÒÇÊı¾İ×ª»»ÏµÊı£¨LSB/(¡ã/s)£©
 
-// åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢
-#define ACC_DATA_X               (imu660rb_acc_x)         // åŠ é€Ÿåº¦è®¡ X è½´åŸå§‹æ•°æ®
-#define ACC_DATA_Y               (-imu660rb_acc_y)         // åŠ é€Ÿåº¦è®¡ Y è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-#define ACC_DATA_Z               (-imu660rb_acc_z)         // åŠ é€Ÿåº¦è®¡ Z è½´åŸå§‹æ•°æ®ï¼ˆåå‘ä»¥è½¬æ¢æ–¹å‘ï¼‰
-#define ACC_TRANSITION_FACTOR    (4098.0f)                 // åŠ é€Ÿåº¦è®¡æ•°æ®è½¬æ¢ç³»æ•°ï¼ˆLSB/gï¼‰
+// ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»
+#define ACC_DATA_X               (imu660rb_acc_x)         // ¼ÓËÙ¶È¼Æ X ÖáÔ­Ê¼Êı¾İ
+#define ACC_DATA_Y               (-imu660rb_acc_y)         // ¼ÓËÙ¶È¼Æ Y ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+#define ACC_DATA_Z               (-imu660rb_acc_z)         // ¼ÓËÙ¶È¼Æ Z ÖáÔ­Ê¼Êı¾İ£¨´ø·½Ïò×ª»»£©
+#define ACC_TRANSITION_FACTOR    (4098.0f)                 // ¼ÓËÙ¶È¼ÆÊı¾İ×ª»»ÏµÊı£¨LSB/g£©
 
 
-#define ACC_GRAVITY               (9.80665f)               // é‡åŠ›åŠ é€Ÿåº¦å‚è€ƒå€¼ï¼ˆm/sÂ²ï¼‰
+#define ACC_GRAVITY               (9.80665f)               // ÖØÁ¦¼ÓËÙ¶È²Î¿¼Öµ£¨m/s2£©
 
 
 typedef struct quaternion_data
 {
-    float rot_mat[3][3];                                  // æ—‹è½¬çŸ©é˜µ
+    float rot_mat[3][3];                                  // Ğı×ª¾ØÕó
 } quaternion_data;
 
 typedef struct quaternion_process
 {
-    float qua[4];                                         // å››å…ƒæ•°æ•°æ®ï¼ˆw, x, y, z é¡ºåºï¼‰
-    float acc_filtered[3];                                // æ»¤æ³¢ååŠ é€Ÿåº¦ï¼ˆå•ä½ï¼šgï¼‰
+    float qua[4];                                         // ËÄÔªÊıÊı¾İ£¨w, x, y, z Ë³Ğò£©
+    float acc_filtered[3];                                // ÂË²¨ºóµÄ¼ÓËÙ¶È£¨µ¥Î»£ºg£©
 } quaternion_process;
 
 typedef struct quaternion_parameter
 {
-    float acc_err[3];                                    // åŠ é€Ÿåº¦è®¡æ ¡å‡†è¯¯å·®å€¼
+    float acc_err[3];                                    // ¼ÓËÙ¶È¼ÆĞ£×¼Îó²îÖµ
 } quaternion_parameter;
 
 typedef struct quaternion_module
 {
-    quaternion_process pro;                              // å››å…ƒæ•°è¿‡ç¨‹æ•°æ®
-    quaternion_data data;                                // å››å…ƒæ•°è¾“å‡ºæ•°æ®
-    quaternion_parameter parameter;                      // å››å…ƒæ•°æ ¡å‡†å‚æ•°
+    quaternion_process pro;                              // ËÄÔªÊı´¦ÀíÊı¾İ
+    quaternion_data data;                                // ËÄÔªÊı¼ÆËã½á¹ûÊı¾İ
+    quaternion_parameter parameter;                      // ËÄÔªÊıĞ£×¼²ÎÊı
 } quaternion_module;
 
 typedef struct
 {
-    float p;                                             // PID æ¯”ä¾‹é¡¹ç³»æ•° P
-    float i;                                             // PID ç§¯åˆ†é¡¹ç³»æ•° I
-    float d;                                             // PID å¾®åˆ†é¡¹ç³»æ•° D
-    float p_value_last;                                  // ä¸Šä¸€æ¬¡åå·®å€¼
-    float i_value;                                       // PID ç§¯åˆ†å€¼
-    float i_value_pro;                                   // PID ç§¯åˆ†å€¼çš„å˜åŒ–æ¯”ä¾‹ï¼ˆèŒƒå›´ 0 - 1ï¼Œç”¨äºæ§åˆ¶ç§¯åˆ†å¢é•¿é€Ÿåº¦ï¼‰
-    float i_value_max;                                   // PID ç§¯åˆ†å€¼ä¸Šé™
-    float out;                                           // PID è¾“å‡ºè®¡ç®—å€¼
-    float out_max;                                       // PID è¾“å‡ºå€¼ä¸Šé™
-    float incremental_data[2];                           // å¢é‡å¼ PID åå·®é‡å†å²æ•°æ®
+    float p;                                             // PID ¿ØÖÆÆ÷±ÈÀıÏî P
+    float i;                                             // PID ¿ØÖÆÆ÷»ı·ÖÏî I
+    float d;                                             // PID ¿ØÖÆÆ÷Î¢·ÖÏî D
+    float p_value_last;                                  // ÉÏÒ»´ÎÆ«²îÖµ
+    float i_value;                                       // PID »ı·ÖÖµ
+    float i_value_pro;                                   // PID »ı·ÖÖµµÄ±ÈÀı£¨·¶Î§ 0 - 1£¬ÓÃÓÚÏŞÖÆ»ı·ÖÔö³¤ËÙ¶È£©
+    float i_value_max;                                   // PID »ı·ÖÖµÉÏÏŞ
+    float out;                                           // PID ¿ØÖÆÆ÷Êä³öÖµ
+    float out_max;                                       // PID Êä³öÖµÉÏÏŞ
+    float incremental_data[2];                           // ÔöÁ¿Ê½ PID µÄÆ«²îÀúÊ·Êı¾İ
 } pid_cycle_struct;
 
 typedef struct
 {
-    float correct_kp;                                    // å§¿æ€æ ¡å‡†æ¯”ä¾‹ç³»æ•°ï¼ˆèŒƒå›´ 0.1 - 0.5ï¼‰
-    float correct_ki;                                    // å§¿æ€æ ¡å‡†ç§¯åˆ†ç³»æ•°ï¼ˆèŒƒå›´ 0.001 - 0.01ï¼‰
-    float call_cycle;                                    // å§¿æ€æ»¤æ³¢ç®—æ³•çš„è°ƒç”¨å‘¨æœŸï¼ˆå•ä½ï¼šsï¼Œç§’ï¼‰
-    float mechanical_zero;                               // æœºæ¢°é›¶ç‚¹
-    float yaw;                                           // åèˆªè§’ï¼ˆå•ä½ï¼šåº¦ï¼‰
-    float rol;                                           // æ¨ªæ»šè§’ï¼ˆå•ä½ï¼šåº¦ï¼‰
-    float pit;                                           // ä¿¯ä»°è§’ï¼ˆå•ä½ï¼šåº¦ï¼‰
+    float correct_kp;                                    // ×ËÌ¬Ğ£×¼±ÈÀıÏµÊı£¨·¶Î§ 0.1 - 0.5£©
+    float correct_ki;                                    // ×ËÌ¬Ğ£×¼»ı·ÖÏµÊı£¨·¶Î§ 0.001 - 0.01£©
+    float call_cycle;                                    // ×ËÌ¬ÂË²¨Ëã·¨µÄµ÷ÓÃÖÜÆÚ£¨µ¥Î»£ºs£¨Ãë£©£©
+    float mechanical_zero;                               // »úĞµÁãµã
+    float yaw;                                           // Æ«º½½Ç£¨µ¥Î»£º¶È£©
+    float rol;                                           // ºá¹ö½Ç£¨µ¥Î»£º¶È£©
+    float pit;                                           // ¸©Ñö½Ç£¨µ¥Î»£º¶È£©
 } cascade_common_value_struct;
 
-// ä¸²çº§æ§åˆ¶ç»“æ„ä½“
+// ¼¶Áª¿ØÖÆ½á¹¹Ìå
 typedef struct
 {
-    quaternion_module          quaternion;               // å››å…ƒæ•°å§¿æ€æ¨¡å—
-    cascade_common_value_struct posture_value;          // å§¿æ€å§¿æ€æ•°æ®
-    pid_cycle_struct           angular_speed_cycle;      // è§’é€Ÿåº¦ç¯æ§åˆ¶å‚æ•°
-    pid_cycle_struct           angle_cycle;              // è§’åº¦ç¯æ§åˆ¶å‚æ•°
-    pid_cycle_struct           speed_cycle;              // é€Ÿåº¦ç¯æ§åˆ¶å‚æ•°
-    pid_cycle_struct           track_cycle;              // è½¬å‘ç¯æ§åˆ¶å‚æ•°
+    quaternion_module          quaternion;               // ËÄÔªÊıÏà¹ØÊı¾İ
+    cascade_common_value_struct posture_value;          // ¶¯Ì¬×ËÌ¬Êı¾İ
+    pid_cycle_struct           angular_speed_cycle;      // ½ÇËÙ¶È»·¿ØÖÆÆ÷
+    pid_cycle_struct           angle_cycle;              // ½Ç¶È»·¿ØÖÆÆ÷
+    pid_cycle_struct           speed_cycle;              // ËÙ¶È»·¿ØÖÆÆ÷
+    pid_cycle_struct           track_cycle;              // ×ªÏò»·¿ØÖÆÆ÷
 
 } cascade_value_struct;
 
 
-extern cascade_value_struct roll_balance_cascade;         // æ¨ªæ»šå¹³è¡¡æ§åˆ¶ç»“æ„ä½“
-extern cascade_value_struct roll_balance_cascade_resave;  // æ¨ªæ»šå¹³è¡¡æ§åˆ¶ç»“æ„ä½“åˆå§‹å¤‡ä»½
-extern cascade_value_struct pitch_balance_cascade;        // ä¿¯ä»°å¹³è¡¡æ§åˆ¶ç»“æ„ä½“
-extern cascade_value_struct pitch_balance_cascade_resave; // ä¿¯ä»°å¹³è¡¡æ§åˆ¶ç»“æ„ä½“åˆå§‹å¤‡ä»½
-extern cascade_value_struct track_cascade;                // è½¨è¿¹æ§åˆ¶ç»“æ„ä½“
+extern cascade_value_struct roll_balance_cascade;         // ¸©ÑöÆ½ºâ¿ØÖÆ²ÎÊı½á¹¹Ìå
+extern cascade_value_struct roll_balance_cascade_resave;  // ¸©ÑöÆ½ºâ¿ØÖÆ²ÎÊı½á¹¹Ìå³õÊ¼±¸·İ
+extern cascade_value_struct pitch_balance_cascade;        // ºá¹öÆ½ºâ²ÎÊı¼¶Áª½á¹¹Ìå
+extern cascade_value_struct pitch_balance_cascade_resave; // ºá¹öÆ½ºâ²ÎÊı¼¶Áª½á¹¹Ìå³õÊ¼±¸·İ
+extern cascade_value_struct track_cascade;   
 
-// å‡½æ•°åŠŸèƒ½ï¼š    å››å…ƒæ•°æ¨¡å—è®¡ç®—ï¼ˆæ›´æ–°å§¿æ€æ•°æ®ï¼‰
-// å‚æ•°è¯´æ˜ï¼š    cascade_value - ä¸²çº§æ§åˆ¶ç»“æ„ä½“æŒ‡é’ˆï¼ˆå­˜å‚¨å››å…ƒæ•°åŠå§¿æ€æ•°æ®ï¼‰
-// è¿”å›å‚æ•°ï¼š    void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š    quaternion_module_calculate(&balance_cascade);
-// å¤‡æ³¨ä¿¡æ¯ï¼š    è¯¥å‡½æ•°é€šè¿‡èåˆé™€èºä»ªå’ŒåŠ é€Ÿåº¦è®¡æ•°æ®ï¼Œæ›´æ–°å››å…ƒæ•°å’Œæ—‹è½¬çŸ©é˜µï¼Œè§£ç®—å§¿æ€è§’ï¼ˆæ¨ªæ»šè§’ã€ä¿¯ä»°è§’ã€åèˆªè§’ï¼‰
+// º¯Êı¼ò½é    ËÄÔªÊıÄ£¿é¼ÆËã£¨¸üĞÂ×ËÌ¬Êı¾İ£©
+// ²ÎÊıËµÃ÷   cascade_value - ¼¶Áª¿ØÖÆ½á¹¹ÌåÖ¸Õë£¨´æ´¢ËÄÔªÊı¼°×ËÌ¬Êı¾İ£©
+// ·µ»Ø²ÎÊı   void
+// Ê¹ÓÃÊ¾Àı   quaternion_module_calculate(&balance_cascade);
+// ±¸×¢ĞÅÏ¢   ¸Ãº¯ÊıÍ¨¹ıÈÚºÏÍÓÂİÒÇºÍ¼ÓËÙ¶È¼ÆÊı¾İ£¬¸üĞÂËÄÔªÊı¼°Ğı×ª¾ØÕó£¬×îÖÕ¼ÆËã³ö×ËÌ¬½Ç£¨ºá¹ö½Ç¡¢¸©Ñö½Ç¡¢Æ«º½½Ç£©
 void quaternion_module_calculate(cascade_value_struct *cascade_value);
 
-// å‡½æ•°åŠŸèƒ½ï¼š    ä½ç½®å¼ PID æ§åˆ¶è®¡ç®—
-// å‚æ•°è¯´æ˜ï¼š    pid_cycle - PID æ§åˆ¶å‘¨æœŸç»“æ„ä½“æŒ‡é’ˆï¼›target - ç›®æ ‡å€¼ï¼›real - å®é™…æµ‹é‡å€¼
-// è¿”å›å‚æ•°ï¼š    void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š    pid_control(&balance_cascade.speed_cycle, 0, (left_enc + right_enc) / 2);
-// å¤‡æ³¨ä¿¡æ¯ï¼š    é‡‡ç”¨ä½ç½®å¼ PID ç®—æ³•ï¼Œè®¡ç®—æ¯”ä¾‹é¡¹ã€ç§¯åˆ†é¡¹ã€å¾®åˆ†é¡¹ï¼Œå¹¶å¯¹ç§¯åˆ†é¡¹å’Œè¾“å‡ºè¿›è¡Œé™å¹…
+// º¯Êı¼ò½é    Î»ÖÃÊ½ PID ¿ØÖÆ¼ÆËã
+// ²ÎÊıËµÃ÷   pid_cycle - PID ¿ØÖÆÆ÷½á¹¹ÌåÖ¸Õë£»target - Ä¿±êÖµ£»real - Êµ¼Ê²âÁ¿Öµ
+// ·µ»Ø²ÎÊı   void
+// Ê¹ÓÃÊ¾Àı   pid_control(&balance_cascade.speed_cycle, 0, (left_enc + right_enc) / 2);
+// ±¸×¢ĞÅÏ¢   ¼ÆËãÎ»ÖÃÊ½ PID µÄÊä³ö£¬°üº¬±ÈÀı¡¢»ı·Ö¡¢Î¢·Ö»·½Ú£¬²¢¶Ô»ı·ÖºÍÊä³ö½øĞĞÏŞ·ù
 void pid_control (pid_cycle_struct *pid_cycle, float target, float real);
 
-// å‡½æ•°åŠŸèƒ½ï¼š    å¢é‡å¼ PID æ§åˆ¶è®¡ç®—
-// å‚æ•°è¯´æ˜ï¼š    pid_cycle - PID æ§åˆ¶å‘¨æœŸç»“æ„ä½“æŒ‡é’ˆï¼›target - ç›®æ ‡å€¼ï¼›real - å®é™…æµ‹é‡å€¼
-// è¿”å›å‚æ•°ï¼š    void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š    pid_control_incremental(&balance_cascade.angle_cycle, 0, balance_cascade.posture_value.pit);
-// å¤‡æ³¨ä¿¡æ¯ï¼š    é‡‡ç”¨å¢é‡å¼ PID ç®—æ³•ï¼Œé€šè¿‡åå·®çš„å˜åŒ–é‡è®¡ç®—æ§åˆ¶å¢é‡å¹¶ç´¯åŠ åˆ°è¾“å‡ºï¼Œè¾“å‡ºè¿›è¡Œé™å¹…
+// º¯Êı¼ò½é    ÔöÁ¿Ê½ PID ¿ØÖÆ¼ÆËã
+// ²ÎÊıËµÃ÷   pid_cycle - PID ¿ØÖÆÆ÷½á¹¹ÌåÖ¸Õë£»target - Ä¿±êÖµ£»real - Êµ¼Ê²âÁ¿Öµ
+// ·µ»Ø²ÎÊı   void
+// Ê¹ÓÃÊ¾Àı   pid_control_incremental(&balance_cascade.angle_cycle, 0, balance_cascade.posture_value.pit);
+// ±¸×¢ĞÅÏ¢   ¼ÆËãÔöÁ¿Ê½ PID µÄÊä³ö£¬Í¨¹ıÆ«²îµÄ±ä»¯Á¿¼ÆËã¿ØÖÆÁ¿ÔöÁ¿£¬ÀÛ¼Óºó×÷ÎªÊä³ö²¢ÏŞ·ù
 void pid_control_incremental (pid_cycle_struct *pid_cycle, float target, float real);
 
-// å‡½æ•°åŠŸèƒ½ï¼š    å››å…ƒæ•°æ¨¡å—åˆå§‹åŒ–
-// å‚æ•°è¯´æ˜ï¼š    cascade_value - ä¸²çº§æ§åˆ¶ç»“æ„ä½“æŒ‡é’ˆï¼ˆéœ€è¦åˆå§‹åŒ–çš„å››å…ƒæ•°æ¨¡å—ï¼‰
-// è¿”å›å‚æ•°ï¼š    void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š    quaternion_module_init(&balance_cascade);
-// å¤‡æ³¨ä¿¡æ¯ï¼š    åˆå§‹åŒ–å››å…ƒæ•°ä¸ºå•ä½å››å…ƒæ•°ï¼Œå„å§¿æ€è§’ä¸º 0ï¼ŒåŠ é€Ÿåº¦æ»¤æ³¢å€¼åˆå§‹åŒ–ä¸ºå½“å‰åŠ é€Ÿåº¦è®¡æ•°æ®ï¼Œæ ¡å‡†è¯¯å·®æ¸…é›¶
+// º¯Êı¼ò½é    ËÄÔªÊıÄ£¿é³õÊ¼»¯
+// ²ÎÊıËµÃ÷   cascade_value - ¼¶Áª¿ØÖÆ½á¹¹ÌåÖ¸Õë£¨ĞèÒª³õÊ¼»¯µÄËÄÔªÊıÄ£¿é£©
+// ·µ»Ø²ÎÊı   void
+// Ê¹ÓÃÊ¾Àı   quaternion_module_init(&balance_cascade);
+// ±¸×¢ĞÅÏ¢   ³õÊ¼»¯ËÄÔªÊıÎªµ¥Î»ËÄÔªÊı£¬×ËÌ¬½ÇÎª 0£¬¼ÓËÙ¶ÈÂË²¨³õÊ¼ÖµÉèÎªµ±Ç°¼ÓËÙ¶È¼ÆÊı¾İ£¬Ğ£×¼Îó²îÇåÁã
 void quaternion_module_init (cascade_value_struct *cascade_value);
 
-// å‡½æ•°åŠŸèƒ½ï¼š    å¹³è¡¡ä¸²çº§æ§åˆ¶åˆå§‹åŒ–
-// è¿”å›å‚æ•°ï¼š    void
-// ä½¿ç”¨ç¤ºä¾‹ï¼š    balance_cascade_init();
-// å¤‡æ³¨ä¿¡æ¯ï¼š    åˆå§‹åŒ–å¹³è¡¡æ§åˆ¶å’Œè½¬å‘å¹³è¡¡æ§åˆ¶çš„çº§è”ç»“æ„ä½“ï¼Œé…ç½®å§¿æ€æ ¡å‡†ç³»æ•°å’Œ PID å‚æ•°ç­‰ï¼Œå¹¶å¤‡ä»½åˆå§‹çŠ¶æ€
+// º¯Êı¼ò½é    Æ½ºâ¼¶Áª¿ØÖÆ³õÊ¼»¯
+// ·µ»Ø²ÎÊı   void
+// Ê¹ÓÃÊ¾Àı   balance_cascade_init();
+// ±¸×¢ĞÅÏ¢   ³õÊ¼»¯Æ½ºâ¿ØÖÆºÍ×ªÏòÆ½ºâ¿ØÖÆµÄ¼¶Áª½á¹¹Ìå²ÎÊı£¬°üÀ¨×ËÌ¬Ğ£×¼ÏµÊı¡¢PID ²ÎÊıµÈ£¬²¢±£´æ³õÊ¼×´Ì¬
 void balance_cascade_init (void);
 
 
-#endif /* IMU_MODE */
-
-#endif /* CODE_IMU_H_ */
+#endif

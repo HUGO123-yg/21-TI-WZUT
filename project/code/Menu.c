@@ -1,777 +1,909 @@
 /*
- * Menu.c â€” 3-Level Hierarchical Menu State Machine
+ * Menu.c
  *
- *  Created on: 2026-6-19
- *      Author: HUGO
- *  Optimized: 2026-06-19 â€” data-driven draw, enum navigation, init_flag lifecycle
- *
- * Architecture:
- *   A key_table[] drives all navigation. Each entry is a node in a 3-level tree:
- *     Level 0:      Welcome page (MENU_ROOT)
- *     Level 1 (x6): Main menu groups A-F â€” select a subsystem
- *     Level 2 (x30): Sub-menus within each group â€” pick an operation
- *     Level 3 (x25): Leaf pages â€” execute the operation (record / save / replay / clear / jump)
- *
- *   Navigation: up/down/enter fields hold the NEXT node index. Pressing a key
- *   overwrites func_index, then Menu() dispatches the new node's draw callback.
- *   Level 3 has up==down==self (no vertical movement at leaf level);
- *   enter points back to the parent Level 2 entry for "go back".
- *
- *   init_flag lifecycle:
- *   - Each entry has an init_flag (in key_table). Level 3 recording/save/replay/clear
- *     functions use it for one-shot initialization.
- *   - Menu() resets init_flag to 0 when the user LEAVES a node, so re-entering
- *     triggers a fresh init (fixes the old static-once_flag bug).
- *
- *   Redraw optimization:
- *   - is_static=1 (Level 0/1/2): Skip redraw when func_index hasn't changed.
- *   - is_static=0 (Level 3 telemetry): Continuous redraw for live data display.
+ *  Created on: 2026Äê3ÔÂ24ÈÕ
+ *      Author: 24244
  */
 
 #include "zf_common_headfile.h"
 
-// ============================================================
-// Menu Page Label Tables (const â†’ .rodata, shared across nodes)
-// ============================================================
+int  func_index = 0; //³õÊ¼ÏÔÊ¾»¶Ó­½çÃæ
+int  last_index = 127; //last³õÊ¼ÎªÎÞÐ§Öµ
 
-// ---- Level 1: ä¸»èœå• 4 é¡¹ (GO/B/C/TEST) ----------
-static const char *page_l1_items[] = { "GO", "B", "C", "TEST" };
 
-// ---- Level 2 group A: Record / SAVE / Reproduce -----------------
-static const char *page_l2_a[] = { "Record", "SAVE", "Reproduce", "A_4", "A_5" };
+void (*current_operation_index)(void);       //ÏÔÊ¾º¯ÊýË÷ÒýÖ¸Õë(µ±Ç°²Ù×÷Ë÷Òý)
 
-// ---- Level 2 group B: row 1 shows "Clear" instead of "B_4" ------
-static const char *page_l2_b[]       = { "Record", "SAVE", "Reproduce", "B_4",  "B_5" };
-static const char *page_l2_b_clear[] = { "Record", "SAVE", "Reproduce", "Clear","B_5" };
-
-// ---- Level 2 group C: row 4 shows camera sensor name ------------
-static const char *page_l2_c[] = { "Record", "SAVE", "Reproduce", "Mt9v03_text", "C_5" };
-
-// ---- Level 2 group D: æµ‹è¯•æ¨¡å—ï¼ˆç›´è¡Œ100mç­‰ï¼‰ --------------------
-static const char *page_l2_test[] = { "Straight", "StairSeq", "StairTest", "JumpTest", "Bridge", "Rotation" };
-
-// ---- Level 2 group E: Jump subsystem commands --------------------
-static const char *page_l2_e[] = { "Trigger", "Config", "Abort", "Default", "Status" };
-
-#define ROTATION_TEST_DUTY      (900)
-#define ROTATION_TEST_TURNS     (3.0f)
-
-// ============================================================
-// Global State
-// ============================================================
-// func_index â€” current active menu node (overwritten by key events)
-// last_index â€” previous node; used to detect page transitions and
-//              reset init_flag of the node being left.
-//              Initialized to MENU_COUNT (invalid sentinel) so the
-//              first frame always triggers a full draw.
-static menu_node_t  func_index = MENU_ROOT;
-static menu_node_t  last_index = MENU_COUNT;
-
-// Cached function pointer â€” avoids re-reading table[].draw on
-// every frame when is_static=1 skips the redraw.
-static void       (*current_operation_index)(void);
-
-// ============================================================
-// Forward Declarations (required for state table initializers)
-// ============================================================
-static void fun_0(void);
-static void draw_not_implemented(void);
-static void draw_menu_items_rows(const char *items[], uint8 count, uint8 cursor, const char *title, uint8 rows);
-static void draw_menu_items(const char *items[], uint8 count, uint8 cursor, const char *title);
-static void draw_l1_menu(void);
-static void draw_l2_a(void);
-static void draw_l2_b(void);
-static void draw_l2_c(void);
-static void draw_l2_d(void);
-static void draw_l2_e(void);
-static void draw_nav_replay_status(void);
-void fun_a31(void); void fun_a32(void); void fun_a33(void); void fun_a34(void);
-void fun_b31(void); void fun_b32(void); void fun_b33(void); void fun_b34(void);
-void fun_c31(void); void fun_c32(void); void fun_c33(void); void fun_c34(void);
-void fun_e31(void); void fun_e32(void); void fun_e33(void); void fun_e34(void); void fun_e35(void);
-void fun_d31(void); void fun_d32_stair_seq(void); void fun_d33_stair_test(void); void fun_d34_jump_test(void); void fun_d35_one_bridge(void); void fun_d36_rotation(void);
-
-// ============================================================
-// Menu State Table â€” indexed by menu_node_t enum
-//   Field layout: { up, down, enter, draw, cursor, is_static, init_flag }
-//
-//   up/down/enter : next node on UP / DOWN / ENTER key press.
-//   draw          : callback invoked when this node is active.
-//   cursor        : row where the "->" indicator is drawn (0 = unused).
-//   is_static     : 1 = static page (skip redraw when func_index unchanged).
-//                   0 = dynamic page (telemetry, needs continuous refresh).
-//   init_flag     : one-shot init guard; reset to 0 by Menu() when leaving node.
-//
-//   Level 3 entries: up==down==self (locked), enter=parent L2 node.
-// ============================================================
-static key_table table_dispaly[MENU_COUNT] =
+key_table table_dispaly[100]=                 //½á¹¹ÌåÊý×é
 {
-    // ---- Level 0: Welcome ----------------------------------------
-    [MENU_ROOT] = { MENU_ROOT, MENU_ROOT, MENU_L1_A, fun_0, 0, 1, 0 },
+//{Ë÷Òý£¬ÏòÉÏ£¬ÏòÏÂ£¬È·ÈÏ£¬ÏÔÊ¾º¯Êý}
+    //µÚ0²ã
+    {0,0,0,1,(*fun_0)},                     //AIIT_meun
 
-    // ---- Level 1: Main menu (all share draw_l1_menu) -------------
-    [MENU_L1_A] = { MENU_L1_F, MENU_L1_B, MENU_L2_A1, draw_l1_menu, 1, 1, 0 },
-    [MENU_L1_B] = { MENU_L1_A, MENU_L1_C, MENU_L2_B1, draw_l1_menu, 2, 1, 0 },
-    [MENU_L1_C] = { MENU_L1_B, MENU_L1_D, MENU_L2_C1, draw_l1_menu, 3, 1, 0 },
-    [MENU_L1_D] = { MENU_L1_C, MENU_L1_E, MENU_L2_D1, draw_l1_menu, 4, 1, 0 },
-    [MENU_L1_E] = { MENU_L1_D, MENU_L1_F, MENU_ROOT,  draw_l1_menu, 5, 1, 0 }, // ESC
-    [MENU_L1_F] = { MENU_L1_E, MENU_L1_A, MENU_ROOT,  draw_l1_menu, 6, 1, 0 }, // ESC
+    //µÚ1²ã
+    {1,6,2, 7,(*fun_a1)},
+    {2,1,3,13,(*fun_b1)},
+    {3,2,4,19,(*fun_c1)},
+    {4,3,5,25,(*fun_d1)},
+    {5,4,6,31,(*fun_e1)},
+    {6,5,1, 0,(*fun_f1)},
 
-    // ---- Level 2 group A: Navigation path 1 submenu --------------
-    [MENU_L2_A1] = { MENU_L2_A6, MENU_L2_A2, MENU_L3_A1, draw_l2_a, 1, 1, 0 },
-    [MENU_L2_A2] = { MENU_L2_A1, MENU_L2_A3, MENU_L3_A2, draw_l2_a, 2, 1, 0 },
-    [MENU_L2_A3] = { MENU_L2_A2, MENU_L2_A4, MENU_L3_A3, draw_l2_a, 3, 1, 0 },
-    [MENU_L2_A4] = { MENU_L2_A3, MENU_L2_A5, MENU_L3_A4, draw_l2_a, 4, 1, 0 },
-    [MENU_L2_A5] = { MENU_L2_A4, MENU_L2_A6, MENU_L3_A5, draw_l2_a, 5, 1, 0 },
-    [MENU_L2_A6] = { MENU_L2_A5, MENU_L2_A1, MENU_L1_A,  draw_l2_a, 6, 1, 0 }, // ESC
+    //µÚ2²ã
+    {7,12, 8, 37, (*fun_a21)},
+    {8, 7, 9, 38, (*fun_a22)},
+    {9, 8, 10,39, (*fun_a23)},
+    {10,9, 11,40, (*fun_a24)},
+    {11,10,12,41, (*fun_a25)},
+    {12,11,7,  1, (*fun_a26)},            //ESC
 
-    // ---- Level 2 group B: Navigation path 2 submenu --------------
-    [MENU_L2_B1] = { MENU_L2_B6, MENU_L2_B2, MENU_L3_B1, draw_l2_b, 1, 1, 0 },
-    [MENU_L2_B2] = { MENU_L2_B1, MENU_L2_B3, MENU_L3_B2, draw_l2_b, 2, 1, 0 },
-    [MENU_L2_B3] = { MENU_L2_B2, MENU_L2_B4, MENU_L3_B3, draw_l2_b, 3, 1, 0 },
-    [MENU_L2_B4] = { MENU_L2_B3, MENU_L2_B5, MENU_L3_B4, draw_l2_b, 4, 1, 0 },
-    [MENU_L2_B5] = { MENU_L2_B4, MENU_L2_B6, MENU_L3_B5, draw_l2_b, 5, 1, 0 },
-    [MENU_L2_B6] = { MENU_L2_B5, MENU_L2_B1, MENU_L1_B,  draw_l2_b, 6, 1, 0 }, // ESC
+    {13,18,14,42, (*fun_b21)},
+    {14,13,15,43, (*fun_b22)},
+    {15,14,16,44, (*fun_b23)},
+    {16,15,17,45, (*fun_b24)},
+    {17,16,18,46, (*fun_b25)},
+    {18,17,13, 2, (*fun_b26)},           //ESC
 
-    // ---- Level 2 group C: Navigation path 3 submenu --------------
-    [MENU_L2_C1] = { MENU_L2_C6, MENU_L2_C2, MENU_L3_C1, draw_l2_c, 1, 1, 0 },
-    [MENU_L2_C2] = { MENU_L2_C1, MENU_L2_C3, MENU_L3_C2, draw_l2_c, 2, 1, 0 },
-    [MENU_L2_C3] = { MENU_L2_C2, MENU_L2_C4, MENU_L3_C3, draw_l2_c, 3, 1, 0 },
-    [MENU_L2_C4] = { MENU_L2_C3, MENU_L2_C5, MENU_L3_C4, draw_l2_c, 4, 1, 0 },
-    [MENU_L2_C5] = { MENU_L2_C4, MENU_L2_C6, MENU_L3_C5, draw_l2_c, 5, 1, 0 },
-    [MENU_L2_C6] = { MENU_L2_C5, MENU_L2_C1, MENU_L1_C,  draw_l2_c, 6, 1, 0 }, // ESC
+    {19,24,20,47, (*fun_c21)},
+    {20,19,21,48, (*fun_c22)},
+    {21,20,22,49, (*fun_c23)},
+    {22,21,23,50, (*fun_c24)},
+    {23,22,24,51, (*fun_c25)},
+    {24,23,19,3,  (*fun_c26)},           //ESC
 
-    // ---- Level 2 group D: Test submenu ---------------------------
-    [MENU_L2_D1] = { MENU_L2_D7, MENU_L2_D2, MENU_L3_D1, draw_l2_d, 1, 1, 0 },
-    [MENU_L2_D2] = { MENU_L2_D1, MENU_L2_D3, MENU_L3_D2, draw_l2_d, 2, 1, 0 },
-    [MENU_L2_D3] = { MENU_L2_D2, MENU_L2_D4, MENU_L3_D3, draw_l2_d, 3, 1, 0 },
-    [MENU_L2_D4] = { MENU_L2_D3, MENU_L2_D5, MENU_L3_D4, draw_l2_d, 4, 1, 0 },
-    [MENU_L2_D5] = { MENU_L2_D4, MENU_L2_D6, MENU_L3_D5, draw_l2_d, 5, 1, 0 },
-    [MENU_L2_D6] = { MENU_L2_D5, MENU_L2_D7, MENU_L3_D6, draw_l2_d, 6, 1, 0 },
-    [MENU_L2_D7] = { MENU_L2_D6, MENU_L2_D1, MENU_L1_D,  draw_l2_d, 7, 1, 0 }, // ESC
+    {25,30,26,52, (*fun_d21)},
+    {26,25,27,53, (*fun_d22)},
+    {27,26,28,54, (*fun_d23)},
+    {28,27,29,55, (*fun_d24)},
+    {29,28,30,56, (*fun_d25)},
+    {30,29,25,4,  (*fun_d26)},           //ESC
 
-    // ---- Level 2 group E: Jump control submenu -------------------
-    [MENU_L2_E1] = { MENU_L2_E6, MENU_L2_E2, MENU_L3_E1, draw_l2_e, 1, 1, 0 },
-    [MENU_L2_E2] = { MENU_L2_E1, MENU_L2_E3, MENU_L3_E2, draw_l2_e, 2, 1, 0 },
-    [MENU_L2_E3] = { MENU_L2_E2, MENU_L2_E4, MENU_L3_E3, draw_l2_e, 3, 1, 0 },
-    [MENU_L2_E4] = { MENU_L2_E3, MENU_L2_E5, MENU_L3_E4, draw_l2_e, 4, 1, 0 },
-    [MENU_L2_E5] = { MENU_L2_E4, MENU_L2_E6, MENU_L3_E5, draw_l2_e, 5, 1, 0 },
-    [MENU_L2_E6] = { MENU_L2_E5, MENU_L2_E1, MENU_L1_E,  draw_l2_e, 6, 1, 0 }, // ESC
+    {31,36,32,57, (*fun_e21)},
+    {32,31,33,58, (*fun_e22)},
+    {33,32,34,59, (*fun_e23)},
+    {34,33,35,60, (*fun_e24)},
+    {35,34,36,61, (*fun_e25)},
+    {36,35,31,5,  (*fun_e26)},           //ESC
 
-    // ---- Level 3 leaf nodes: is_static=0 (live telemetry) --------
-    // A group: Path 1 operations
-    [MENU_L3_A1] = { MENU_L3_A1, MENU_L3_A1, MENU_L2_A1, fun_a31,              0, 0, 0 },
-    [MENU_L3_A2] = { MENU_L3_A2, MENU_L3_A2, MENU_L2_A2, fun_a32,              0, 0, 0 },
-    [MENU_L3_A3] = { MENU_L3_A3, MENU_L3_A3, MENU_L2_A3, fun_a33,              0, 0, 0 },
-    [MENU_L3_A4] = { MENU_L3_A4, MENU_L3_A4, MENU_L2_A4, fun_a34,              0, 0, 0 },
-    [MENU_L3_A5] = { MENU_L3_A5, MENU_L3_A5, MENU_L2_A5, draw_not_implemented, 0, 0, 0 },
+    //µÚ3²ã
+    {37,37,37,7, (*fun_a31)},
+    {38,38,38,8, (*fun_a32)},
+    {39,39,39,9, (*fun_a33)},
+    {40,40,40,10,(*fun_a34)},
+    {41,41,41,11,(*fun_a35)},
 
-    // B group: Path 2 operations
-    [MENU_L3_B1] = { MENU_L3_B1, MENU_L3_B1, MENU_L2_B1, fun_b31,              0, 0, 0 },
-    [MENU_L3_B2] = { MENU_L3_B2, MENU_L3_B2, MENU_L2_B2, fun_b32,              0, 0, 0 },
-    [MENU_L3_B3] = { MENU_L3_B3, MENU_L3_B3, MENU_L2_B3, fun_b33,              0, 0, 0 },
-    [MENU_L3_B4] = { MENU_L3_B4, MENU_L3_B4, MENU_L2_B4, fun_b34,              0, 0, 0 },
-    [MENU_L3_B5] = { MENU_L3_B5, MENU_L3_B5, MENU_L2_B5, draw_not_implemented, 0, 0, 0 },
+    {42,42,42,13,(*fun_b31)},
+    {43,43,43,14,(*fun_b32)},
+    {44,44,44,15,(*fun_b33)},
+    {45,45,45,16,(*fun_b34)},
+    {46,46,46,17,(*fun_b35)},
 
-    // C group: Path 3 operations
-    [MENU_L3_C1] = { MENU_L3_C1, MENU_L3_C1, MENU_L2_C1, fun_c31,              0, 0, 0 },
-    [MENU_L3_C2] = { MENU_L3_C2, MENU_L3_C2, MENU_L2_C2, fun_c32,              0, 0, 0 },
-    [MENU_L3_C3] = { MENU_L3_C3, MENU_L3_C3, MENU_L2_C3, fun_c33,              0, 0, 0 },
-    [MENU_L3_C4] = { MENU_L3_C4, MENU_L3_C4, MENU_L2_C4, fun_c34,              0, 0, 0 },
-    [MENU_L3_C5] = { MENU_L3_C5, MENU_L3_C5, MENU_L2_C5, draw_not_implemented, 0, 0, 0 },
+    {47,47,47,19,(*fun_c31)},
+    {48,48,48,20,(*fun_c32)},
+    {49,49,49,21,(*fun_c33)},
+    {50,50,50,22,(*fun_c34)},
+    {51,51,51,23,(*fun_c35)},
 
-    // D group: æµ‹è¯•æ¨¡å— â€” L3 leaf pages
-    [MENU_L3_D1] = { MENU_L3_D1, MENU_L3_D1, MENU_L2_D1, fun_d31, 0, 0, 0 },
-    [MENU_L3_D2] = { MENU_L3_D2, MENU_L3_D2, MENU_L2_D2, fun_d32_stair_seq, 0, 0, 0 },
-    [MENU_L3_D3] = { MENU_L3_D3, MENU_L3_D3, MENU_L2_D3, fun_d33_stair_test, 0, 0, 0 },
-    [MENU_L3_D4] = { MENU_L3_D4, MENU_L3_D4, MENU_L2_D4, fun_d34_jump_test, 0, 0, 0 },
-    [MENU_L3_D5] = { MENU_L3_D5, MENU_L3_D5, MENU_L2_D5, fun_d35_one_bridge, 0, 0, 0 },
-    [MENU_L3_D6] = { MENU_L3_D6, MENU_L3_D6, MENU_L2_D6, fun_d36_rotation, 0, 0, 0 },
+    {52,52,52,25,(*fun_d31)},
+    {53,53,53,26,(*fun_d32)},
+    {54,54,54,27,(*fun_d33)},
+    {55,55,55,28,(*fun_d34)},
+    {56,56,56,29,(*fun_d35)},
 
-    // E group: Jump control leaf pages
-    [MENU_L3_E1] = { MENU_L3_E1, MENU_L3_E1, MENU_L2_E1, fun_e31, 0, 0, 0 },
-    [MENU_L3_E2] = { MENU_L3_E2, MENU_L3_E2, MENU_L2_E2, fun_e32, 0, 0, 0 },
-    [MENU_L3_E3] = { MENU_L3_E3, MENU_L3_E3, MENU_L2_E3, fun_e33, 0, 0, 0 },
-    [MENU_L3_E4] = { MENU_L3_E4, MENU_L3_E4, MENU_L2_E4, fun_e34, 0, 0, 0 },
-    [MENU_L3_E5] = { MENU_L3_E5, MENU_L3_E5, MENU_L2_E5, fun_e35, 0, 0, 0 },
+    {57,57,57,31,(*fun_e31)},
+    {58,58,58,32,(*fun_e32)},
+    {59,59,59,33,(*fun_e33)},
+    {60,60,60,34,(*fun_e34)},
+    {61,61,61,35,(*fun_e35)},
 };
 
-// ============================================================
-// Data-Driven Draw Functions
-// ============================================================
-// These 6 thin wrappers replace 36 copy-paste functions from the
-// original code. Each per-group wrapper reads the cursor position
-// from the current table entry and delegates to draw_menu_items().
-// The label tables are compile-time constants in .rodata â€” no
-// runtime string duplication.
 
-// ---- Core: draws a menu page ------------------------------------
-//   items[0..count-1] = row labels (row 1..count)
-//   row count+1..rows get "ESC"
-//   The "->" cursor indicator is drawn on the row matching `cursor`.
-static void draw_menu_items_rows(const char *items[], uint8 count, uint8 cursor,
-                                 const char *title, uint8 rows)
+void Menu(void)//²Ëµ¥º¯Êý
 {
-    uint8 i;
-    ips_clear();
-    for (i = 1; i <= rows; i++)
+
+
+
+                if(key1_flag)
+                {
+
+                    func_index = table_dispaly[func_index].up;    //ÏòÉÏ·­
+                    key1_clear();
+                }
+                if(key2_flag)
+                {
+
+                    func_index = table_dispaly[func_index].down;    //ÏòÏÂ·­
+                     key2_clear();
+
+                }
+                if(key3_flag)
+                {
+
+                    func_index = table_dispaly[func_index].enter;    //È·ÈÏ
+                    key3_clear();
+
+                }
+
+
+            if (func_index != last_index)
+            {
+                current_operation_index = table_dispaly[func_index].current_operation;
+
+                ips200_clear();
+                (*current_operation_index)();//Ö´ÐÐµ±Ç°²Ù×÷º¯Êý
+                last_index = func_index;
+
+            }
+            else
+            {
+                (*current_operation_index)();//Ö´ÐÐµ±Ç°²Ù×÷º¯Êý
+            }
+  }
+
+
+///*********µÚ0²ã***********/
+void fun_0()
+{
+
+
+//    show_rgb565_image(0,16*5, (const uint16 *)gImage_ORRN, 240, 135, 240, 135, 0);
+    ips200_show_string(100,300,"Designed_by_WMCA");
+
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////µÚÒ»²ã///////////////////////////////////////////////////////////////////////////////////////////////////////////
+void fun_a1()
+{
+
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+}
+
+void fun_b1()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+
+
+}
+
+void fun_c1()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+
+
+}
+
+void fun_d1()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "GO");                ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+}
+
+void fun_e1()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+}
+
+void fun_f1()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
+    ips200_show_string(20, 16*2, "B");
+    ips200_show_string(20, 16*3, "C");
+    ips200_show_string(20, 16*4, "D");
+    ips200_show_string(20, 16*5, "E");
+    ips200_show_string(20, 16*6, "ESC");
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////µÚ¶þ²ã///////////////////////////////////////////////////////////////////////////////////////////////////////////
+void fun_a21()//
+{
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_a22()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_a23()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_a24()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_a25()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+void fun_a26()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "A_4");
+    ips200_show_string(20, 16*5, "A_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void fun_b21()
+{
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "Clear");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_b22()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "B_4");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_b23()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1,"Record");               ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "B_4");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_b24()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "Record");               ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "B_4");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_b25()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "B_4");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_b26()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "B_4");
+    ips200_show_string(20, 16*5, "B_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void fun_c21()
+{
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2,  "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_c22()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2,  "SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_c23()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_c24()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_c25()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2,"SAVE");
+    ips200_show_string(20, 16*3,"Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_c26()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2,"SAVE");
+    ips200_show_string(20, 16*3, "Reproduce");
+    ips200_show_string(20, 16*4, "Mt9v03_text");
+    ips200_show_string(20, 16*5, "C_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void fun_d21()
+{
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_d22()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_d23()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_d24()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_d25()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_d26()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "D_2");
+    ips200_show_string(20, 16*3, "D_3");
+    ips200_show_string(20, 16*4, "D_4");
+    ips200_show_string(20, 16*5, "D_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void fun_e21()
+{
+    ips200_show_string(0,  16*1, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_e22()
+{
+    ips200_show_string(0,  16*2, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_e23()
+{
+    ips200_show_string(0,  16*3, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_e24()
+{
+    ips200_show_string(0,  16*4, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_e25()
+{
+    ips200_show_string(0,  16*5, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+void fun_e26()
+{
+    ips200_show_string(0,  16*6, "->");
+    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
+    ips200_show_string(20, 16*2, "Start_2");
+    ips200_show_string(20, 16*3, "Start_3");
+    ips200_show_string(20, 16*4, "Start_4");
+    ips200_show_string(20, 16*5, "E_5");
+    ips200_show_string(20, 16*6, "ESC");
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////µÚÈý²ã///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void fun_a31()//¿ÆÄ¿Ò»Ïà¹Ø
+{
+    ips_show_string(8*0, 16*0, "P1 recording....");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        if (i == cursor)
-            ips_show_string(0, 16 * i, "->");
-        ips_show_string(20, 16 * i, (i <= count) ? items[i - 1] : "ESC");
+        Init_Nag_Path(1);             // ³õÊ¼»¯Â·¾¶1
+        N.Nag_SystemRun_Index = 1;     // Æô¶¯¹ßµ¼Â¼ÖÆ
+        once_flag = 1;
     }
-    ips_show_string(8 * 23, 16 * 19, title);
+
+    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
+    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
 }
 
-static void draw_menu_items(const char *items[], uint8 count, uint8 cursor,
-                            const char *title)
+void fun_a32()//¿ÆÄ¿¶þÏà¹Ø
 {
-    draw_menu_items_rows(items, count, cursor, title, 6);
-}
+ ips_show_string(8*0, 16*0, "P1 SAVE....");
 
-static void draw_l1_menu(void)
-{
-    draw_menu_items(page_l1_items, 4, table_dispaly[func_index].cursor, "Page_1");
-}
-
-// ---- Level 2 group A wrapper ------------------------------------
-static void draw_l2_a(void)
-{
-    draw_menu_items(page_l2_a, 5, table_dispaly[func_index].cursor, "Page_2");
-}
-
-// ---- Level 2 group B wrapper: cursor 1 shows "Clear" ------------
-static void draw_l2_b(void)
-{
-    const char **items = (table_dispaly[func_index].cursor == 1) ? page_l2_b_clear
-                                                                  : page_l2_b;
-    draw_menu_items(items, 5, table_dispaly[func_index].cursor, "Page_2");
-}
-
-// ---- Level 2 groups C / D / E wrappers --------------------------
-static void draw_l2_c(void)
-{
-    draw_menu_items(page_l2_c, 5, table_dispaly[func_index].cursor, "Page_2");
-}
-
-static void draw_l2_d(void)
-{
-    draw_menu_items_rows(page_l2_test, 6, table_dispaly[func_index].cursor, "Test", 7);
-}
-
-static void draw_l2_e(void)
-{
-    draw_menu_items(page_l2_e, 5, table_dispaly[func_index].cursor, "Jump");
-}
-
-// ---- Level 0: Welcome / splash screen ---------------------------
-static void fun_0(void)
-{
-    ips_show_string(100, 300, "Designed_by_HUGO");
-}
-
-// ---- Fallback for unimplemented leaf nodes -----------------------
-static void draw_not_implemented(void)
-{
-    ips_clear();
-    ips_show_string(8 * 6, 16 * 4, "Not Implemented");
-}
-
-static void draw_nav_replay_status(void)
-{
-    const char *state = "Idle";
-
-    if (N.Nag_SystemRun_Index == NAG_RUN_PRELOAD)
-        state = "Loading";
-    else if (N.Nag_SystemRun_Index == NAG_RUN_REPLAY)
-        state = "Replay";
-    else if (N.Nag_Stop_f)
-        state = "Stop";
-
-    ips_show_string(0, 16 * 6, "State:");
-    ips_show_string(8 * 10, 16 * 6, state);
-    ips_show_string(0, 16 * 7, "SaveIdx:");
-    ips_show_int(8 * 10, 16 * 7, N.Save_index, 5);
-}
-
-// ============================================================
-// Menu() â€” Core Dispatch Engine
-// ============================================================
-// Called every super-loop iteration from main_cm7_0.c.
-// Key events are set asynchronously by the 5ms PIT ISR (key_scan).
-//
-// Three-phase logic per frame:
-//   1. Read key flags â†’ update func_index from state table.
-//   2. If func_index changed:
-//      a. Reset init_flag of the PREVIOUS node (enables re-entry).
-//      b. Execute the new node's draw callback.
-//   3. If func_index unchanged:
-//      a. Static pages (is_static=1): skip redraw (save CPU/SPI).
-//      b. Dynamic pages (is_static=0): continuous redraw (telemetry).
-void Menu(void)
-{
-    // ---- Phase 1: key-to-index translation -----------------------
-    if (key1_flag) { func_index = table_dispaly[func_index].up;    key1_clear(); }
-    if (key2_flag) { func_index = table_dispaly[func_index].down;  key2_clear(); }
-    if (key3_flag) { func_index = table_dispaly[func_index].enter; key3_clear(); }
-
-    // ---- Phase 2: page transition --------------------------------
-    if (func_index != last_index)
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        // Reset init_flag of the node being left so re-entry
-        // triggers a fresh one-shot initialization.
-        // Guard: last_index == MENU_COUNT on first frame (sentinel).
-        if (last_index < MENU_COUNT)
+        if (N.Nag_SystemRun_Index == 1)
         {
-            table_dispaly[last_index].init_flag = 0;
+            N.End_f = 1;  // ÖÐÖ¹¹ßµ¼ÔËÐÐ£¬Í£Ö¹²É¼¯
         }
-        current_operation_index = table_dispaly[func_index].draw;
-        (*current_operation_index)();
-        last_index = func_index;
+        once_flag = 1;
     }
-    // ---- Phase 3: same-page refresh ------------------------------
-    else
-    {
-        // Static menu pages don't need redraw â€” only dynamic
-        // telemetry pages (recording, replay, jump status) do.
-        if (!table_dispaly[func_index].is_static)
-        {
-            (*current_operation_index)();
-        }
-    }
+
 }
 
-// ============================================================
-// Level 3 â€” Group A: Navigation Path 1
-// ============================================================
-// Each function follows the same pattern:
-//   - Check e->init_flag: if 0, run one-shot init and set to 1.
-//   - Display live telemetry (every frame).
-//   Menu() resets init_flag to 0 when the user navigates away,
-//   so re-entering the page triggers fresh initialization.
-
-// fun_a31: Path 1 â€” Start Recording
-//   Sets Nag_SystemRun_Index=NAG_RUN_RECORD to begin logging trajectory data.
-//   Displays real-time distance, yaw angle, and save index.
-void fun_a31(void)
+void fun_a33()//¿ÆÄ¿Èý
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+ 
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        Init_Nag_Path(1);
-        N.Nag_SystemRun_Index = NAG_RUN_RECORD; // Enter recording mode
-        e->init_flag = 1;
+       Init_Nag_Path(1);             // Ñ¡ÔñÂ·¾¶1
+        N.Nag_SystemRun_Index = 2;     // ¸´ÏÖ
+        fuxian = 1;                    // ¹ì¼£»·¿ªÆô
+        target_speed = user_set_speed;
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "P1 recording....");
-    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
+
+    ips_show_string(8*0, 16*0, "P1 Replay");
+    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
+    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
+    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
 }
 
-// fun_a32: Path 1 â€” Save (Stop Recording)
-//   Sets N.End_f=1 to finalize the recorded trajectory.
-void fun_a32(void)
+void fun_a34()//¿ÆÄ¿ËÄ
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
-        e->init_flag = 1;
-    }
-    ips_show_string(8 * 0, 16 * 0, "P1 SAVE....");
-}
+    ips_show_string(8*0, 16*0, "P1 Clear...");
 
-// fun_a33: Path 1 â€” Replay
-//   Sets Nag_SystemRun_Index=NAG_RUN_PRELOAD to enter replay mode.
-//   Displays PID output values, yaw, angle run, and navigation index.
-void fun_a33(void)
-{
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        Init_Nag_Path(1);
-        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD; // Enter replay mode
-        fuxian = 0;                          // Enable after path preload finishes
-        target_speed = 0;
-        e->init_flag = 1;
-    }
-    ips_show_string(8 * 0, 16 * 0, "P1 Replay");
-    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
-    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    draw_nav_replay_status();
-}
-
-// fun_a34: Path 1 â€” Clear
-//   Erases Path 1 flash pages and zeroes the save index in the meta page.
-//   Then re-initializes Path 1 to a fresh state.
-void fun_a34(void)
-{
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        uint8 page;
-        // Erase all flash pages in Path 1 range ---------------
-        for (page = NAG_PATH1_END; page <= NAG_PATH1_START; page++)
+        // ²Á³ýÂ·¾¶1µÄËùÓÐFlashÒ³
+        for (uint8 page = NAG_PATH1_END; page <= NAG_PATH1_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        Nag_Clear_Path_Meta(1);
+        // Çå³ýÔªÊý¾ÝÒ³ÖÐÂ·¾¶1µÄSave_index
+        flash_buffer_clear();
+        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_union_buffer[MaxSize + 0].uint32_type = 0;  // Â·¾¶1 Save_indexÇåÁã
+        if (flash_check(0, NAG_META_PAGE))
+            flash_erase_page(0, NAG_META_PAGE);
+        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_buffer_clear();
 
-        Init_Nag_Path(1);                   // Re-init to clean state
-        e->init_flag = 1;
+        Init_Nag_Path(1);  // ÖØÐÂ³õÊ¼»¯
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 2, "P1 Data Cleared!");
+
+    ips_show_string(8*0, 16*2, "P1 Data Cleared!");
 }
 
-// ============================================================
-// Level 3 â€” Group B: Navigation Path 2
-// ============================================================
-// Identical structure to Group A but operates on Path 2.
-// flash_union_buffer offset is NAG_META_SAVE_INDEX_OFFSET + NAG_PATH2_META_SLOT.
 
-void fun_b31(void)  // Path 2 â€” Start Recording
+void fun_a35()//Ç¿ÖÆÇå³ýÊý¾Ý
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        Init_Nag_Path(2);
-        N.Nag_SystemRun_Index = NAG_RUN_RECORD;
-        e->init_flag = 1;
-    }
-    ips_show_string(8 * 0, 16 * 0, "P2 recording....");
-    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
+
 }
 
-void fun_b32(void)  // Path 2 â€” Save
+void fun_b31()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+    ips_show_string(8*0, 16*0, "P2 recording....");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
-        e->init_flag = 1;
+        Init_Nag_Path(2);             // ³õÊ¼»¯Â·¾¶2
+        N.Nag_SystemRun_Index = 1;     // Æô¶¯¹ßµ¼Â¼ÖÆ
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "P2 SAVE....");
+
+    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
+    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
+
+
 }
 
-void fun_b33(void)  // Path 2 â€” Replay
+void fun_b32()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+ips_show_string(8*0, 16*0, "P2 SAVE....");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        Init_Nag_Path(2);
-        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD;
-        fuxian = 0;
-        target_speed = 0;
-        e->init_flag = 1;
+        if (N.Nag_SystemRun_Index == 1)
+        {
+            N.End_f = 1;
+        }
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "P2 Replay");
-    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
-    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    draw_nav_replay_status();
+
+
 }
 
-void fun_b34(void)  // Path 2 â€” Clear
+void fun_b33()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        uint8 page;
-        for (page = NAG_PATH2_END; page <= NAG_PATH2_START; page++)
+        Init_Nag_Path(2);               // Ñ¡ÔñÂ·¾¶2
+        N.Nag_SystemRun_Index = 2;     // ¸´ÏÖ
+        fuxian = 1;
+        target_speed = user_set_speed;
+        once_flag = 1;
+    }
+
+    ips_show_string(8*0, 16*0, "P2 Replay");
+    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
+    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
+    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+}
+
+
+
+
+void fun_b34()
+{
+   ips_show_string(8*0, 16*0, "P2 Clear...");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
+    {
+        for (uint8 page = NAG_PATH2_END; page <= NAG_PATH2_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        Nag_Clear_Path_Meta(2);
+        flash_buffer_clear();
+        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_union_buffer[MaxSize + 1].uint32_type = 0;  // Â·¾¶2 Save_indexÇåÁã
+        if (flash_check(0, NAG_META_PAGE))
+            flash_erase_page(0, NAG_META_PAGE);
+        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_buffer_clear();
 
         Init_Nag_Path(2);
-        e->init_flag = 1;
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 2, "P2 Data Cleared!");
+
+    ips_show_string(8*0, 16*2, "P2 Data Cleared!");
+
+
 }
 
-// ============================================================
-// Level 3 â€” Group C: Navigation Path 3
-// ============================================================
-// Identical structure to Groups A/B but operates on Path 3.
-// flash_union_buffer offset is NAG_META_SAVE_INDEX_OFFSET + NAG_PATH3_META_SLOT.
-
-void fun_c31(void)  // Path 3 â€” Start Recording
+void fun_b35()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        Init_Nag_Path(3);
-        N.Nag_SystemRun_Index = NAG_RUN_RECORD;
-        e->init_flag = 1;
-    }
-    ips_show_string(8 * 0, 16 * 0, "P3 recording....");
-    ips_show_string(8 * 0, 16 * 1, "Distance"); ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "Angular");  ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "SaveIdx");   ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
+
+
+
 }
 
-void fun_c32(void)  // Path 3 â€” Save
+void fun_c31()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+  ips_show_string(8*0, 16*0, "P3 recording....");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        if (N.Nag_SystemRun_Index == NAG_RUN_RECORD) { N.End_f = 1; }
-        e->init_flag = 1;
+        Init_Nag_Path(3);             // ³õÊ¼»¯Â·¾¶3
+        N.Nag_SystemRun_Index = 1;     // Æô¶¯¹ßµ¼Â¼ÖÆ
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "P3 SAVE....");
+
+    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
+    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
+
 }
 
-void fun_c33(void)  // Path 3 â€” Replay
+void fun_c32()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+  ips_show_string(8*0, 16*0, "P3 SAVE....");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        Init_Nag_Path(3);
-        N.Nag_SystemRun_Index = NAG_RUN_PRELOAD;
-        fuxian = 0;
-        target_speed = 0;
-        e->init_flag = 1;
+        if (N.Nag_SystemRun_Index == 1)
+        {
+            N.End_f = 1;
+        }
+        once_flag = 1;
     }
-    ips_show_string(8 * 0, 16 * 0, "P3 Replay");
-    ips_show_string(8 * 0, 16 * 1, "BASE");     ips_show_float(8 * 10, 16 * 1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 2, "TRACK");    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8 * 0, 16 * 3, "GD_SC");    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
-    ips_show_string(8 * 0, 16 * 4, "Nag_Yaw");  ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
-    ips_show_string(8 * 0, 16 * 5, "Angle_Run");ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
-    draw_nav_replay_status();
+
 }
 
-void fun_c34(void)  // Path 3 â€” Clear
+void fun_c33()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
+  static uint8_t once_flag = 0;
+    if (once_flag == 0)
     {
-        uint8 page;
-        for (page = NAG_PATH3_END; page <= NAG_PATH3_START; page++)
+      Init_Nag_Path(3);             // Ñ¡ÔñÂ·¾¶3
+        N.Nag_SystemRun_Index = 2;     // ¸´ÏÖ
+        fuxian = 1;
+        target_speed = user_set_speed;
+        once_flag = 1;
+    }
+
+    ips_show_string(8*0, 16*0, "P3 Replay");
+    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
+    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
+    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
+    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+}
+
+
+
+void fun_c34()
+{
+ ips_show_string(8*0, 16*0, "P3 Clear...");
+
+    static uint8_t once_flag = 0;
+    if (once_flag == 0)
+    {
+        for (uint8 page = NAG_PATH3_END; page <= NAG_PATH3_START; page++)
         {
             if (flash_check(0, page))
                 flash_erase_page(0, page);
         }
-        Nag_Clear_Path_Meta(3);
+        flash_buffer_clear();
+        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_union_buffer[MaxSize + 2].uint32_type = 0;  // Â·¾¶3 Save_indexÇåÁã
+        if (flash_check(0, NAG_META_PAGE))
+            flash_erase_page(0, NAG_META_PAGE);
+        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
+        flash_buffer_clear();
 
         Init_Nag_Path(3);
-        e->init_flag = 1;
-    }
-    ips_show_string(8 * 0, 16 * 2, "P3 Data Cleared!");
-}
-
-// ============================================================
-// Level 3 â€” Group E: Jump Control
-// ============================================================
-// These functions interact with the 7-state jump FSM in Body_ctrl.c.
-// Trigger / abort / reset use init_flag so the action runs once when the
-// page is entered, then the same page can keep showing live status.
-
-void fun_e31(void)  // Jump â€” Trigger
-{
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        (void)jump_trigger();
-        e->init_flag = 1;
+        once_flag = 1;
     }
 
-    ips_show_string(8 * 0, 16 * 0, "Jump Trigger");
-    ips_show_string(8 * 0, 16 * 2, "Result:");
-    ips_show_string(8 * 10, 16 * 2, jump_trigger_result_name(jump_cfg.last_trigger_result));
-    ips_show_string(8 * 0, 16 * 3, "State:");
-    ips_show_string(8 * 10, 16 * 3, jump_state_name(jump_cfg.state));
+    ips_show_string(8*0, 16*2, "P3 Data Cleared!");
+
 }
 
-void fun_e32(void)  // Jump â€” Config Display (read-only)
+
+void fun_c35()
 {
-    ips_show_string(8 * 0, 16 * 0, "Jump Config");
-    ips_show_string(8 * 0, 16 * 1, "ChargeT");   ips_show_int(8 * 10, 16 * 1, jump_cfg.charge_ticks, 5);
-    ips_show_string(8 * 0, 16 * 2, "ChargeD");   ips_show_int(8 * 10, 16 * 2, jump_cfg.charge_duty, 5);
-    ips_show_string(8 * 0, 16 * 3, "LaunchD");   ips_show_int(8 * 10, 16 * 3, jump_cfg.launch_duty, 5);
-    ips_show_string(8 * 0, 16 * 4, "AirTmout");  ips_show_int(8 * 10, 16 * 4, jump_cfg.airborne_timeout, 5);
-    ips_show_string(8 * 0, 16 * 5, "Boost");     ips_show_float(8 * 10, 16 * 5, jump_cfg.forward_motor_boost, 5, 1);
-    ips_show_string(8 * 0, 16 * 6, "TiltAbort"); ips_show_float(8 * 10, 16 * 6, jump_cfg.max_tilt_abort, 5, 1);
-    ips_show_string(8 * 0, 16 * 7, "LandAccTh"); ips_show_float(8 * 10, 16 * 7, jump_cfg.landing_acc_threshold, 5, 2);
-    ips_show_string(8 * 0, 16 * 8, "VisionEn");  ips_show_int(8 * 10, 16 * 8, jump_cfg.vision_jump_enable, 5);
+
+
 }
 
-void fun_e33(void)  // Jump â€” Abort (emergency stop)
+void fun_d31()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        jump_abort();
-        e->init_flag = 1;
-    }
 
-    ips_show_string(8 * 0, 16 * 0, "Jump Abort");
-    ips_show_string(8 * 0, 16 * 2, "Aborted - IDLE");
+
 }
 
-void fun_e34(void)  // Jump â€” Reset to Defaults
+void fun_d32()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        jump_config_default();
-        e->init_flag = 1;
-    }
 
-    ips_show_string(8 * 0, 16 * 0, "Jump Default");
-    ips_show_string(8 * 0, 16 * 2, "Reset to Defaults");
+
 }
 
-void fun_e35(void)  // Jump â€” Live Status
+void fun_d33()
 {
-    ips_show_string(8 * 0, 16 * 0, "Jump Status");
-    ips_show_string(8 * 0, 16 * 1, "State:");   ips_show_string(8 * 10, 16 * 1, jump_state_name(jump_cfg.state));
-    ips_show_string(8 * 0, 16 * 2, "Elapsed:"); ips_show_int(8 * 10, 16 * 2, jump_cfg.elapsed, 5);
-    ips_show_string(8 * 0, 16 * 3, "Count:");   ips_show_int(8 * 10, 16 * 3, jump_cfg.jump_count, 5);
-    ips_show_string(8 * 0, 16 * 4, "PeakAcc:"); ips_show_float(8 * 10, 16 * 4, jump_cfg.peak_acc_magnitude, 5, 2);
-    ips_show_string(8 * 0, 16 * 5, "CanTrig:"); ips_show_int(8 * 10, 16 * 5, jump_can_trigger(), 3);
-    ips_show_string(8 * 0, 16 * 6, "Trig:");    ips_show_string(8 * 10, 16 * 6, jump_trigger_result_name(jump_cfg.last_trigger_result));
+
+
 }
 
-// ============================================================
-// Level 3 â€” Group D: æµ‹è¯•æ¨¡å—
-// ============================================================
-
-// fun_d31: ç›´è¡Œ100mç»¼åˆæµ‹è¯•
-//   è¿›å…¥æ—¶è§¦å‘ straight_test_start()ï¼Œinit_flag=1 åŽæŒç»­åˆ·æ–°æ˜¾ç¤º
-//   æµ‹è¯•ä¸­æ˜¾ç¤ºè·ç¦»+åå·®ï¼›å®ŒæˆåŽæ˜¾ç¤ºä¾§å+èˆªå‘æ¼‚ç§»+è¯„çº§
-void fun_d31(void)
+void fun_d34()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        straight_test_start();
-        e->init_flag = 1;
-    }
 
-    ips_show_string(8 * 0, 16 * 0, "Straight 100m");
 
-    switch (straight_test.state)
-    {
-    case STRAIGHT_LOCKING:
-        ips_show_string(8 * 0, 16 * 2, "Locking heading...");
-        ips_show_string(8 * 0, 16 * 3, "GPS:");
-        if (gnss.antenna_direction_state == 1)
-            ips_show_float(8 * 10, 16 * 3, gnss.antenna_direction, 5, 1);
-        else if (gnss.state == 1)
-            ips_show_float(8 * 10, 16 * 3, gnss.direction, 5, 1);
-        else
-            ips_show_string(8 * 10, 16 * 3, "NO GPS");
-        break;
-
-    case STRAIGHT_RUNNING:
-        ips_show_string(8 * 0, 16 * 2, "Dist:");     ips_show_float(8 * 10, 16 * 2, straight_test.distance * 0.01f, 5, 1);
-        ips_show_string(8 * 0, 16 * 3, "Heading:");  ips_show_float(8 * 10, 16 * 3, straight_test.target_heading, 5, 1);
-        ips_show_string(8 * 0, 16 * 4, "Yaw:");      ips_show_float(8 * 10, 16 * 4, (float)Nag_Yaw, 5, 1);
-        ips_show_string(8 * 0, 16 * 5, "Corr:");     ips_show_float(8 * 10, 16 * 5, straight_test.steer_correction, 5, 1);
-        ips_show_string(8 * 0, 16 * 6, "Sat:");      ips_show_int(8 * 10, 16 * 6, gnss.satellite_used, 3);
-        break;
-
-    case STRAIGHT_DONE:
-        ips_show_string(8 * 0, 16 * 2, "=== RESULT ===");
-        ips_show_string(8 * 0, 16 * 3, "Lateral:");   ips_show_float(8 * 10, 16 * 3, straight_test.lateral_deviation, 5, 2);
-        ips_show_string(8 * 0, 16 * 4, "Drift:");     ips_show_float(8 * 10, 16 * 4, straight_test.yaw_drift, 5, 1);
-        ips_show_string(8 * 0, 16 * 5, "Rating:");    ips_show_int(8 * 10, 16 * 5, straight_test.rating, 1);
-        ips_show_string(8 * 12, 16 * 5, "/5");
-        ips_show_string(8 * 0, 16 * 7, "Press <- to exit");
-        break;
-
-    default:
-        break;
-    }
 }
 
-// D2: è¿žç»­ä¸Šå°é˜¶ (StairSeq) â€” 3 è·³åºåˆ—
-void fun_d32_stair_seq(void)
+
+void fun_d35()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0) { stair_seq_start();    e->init_flag = 1; }
-    stair_seq_run();
-    if (stair_seq_is_done())  func_index = MENU_L1_D;
+
+
 }
 
-// D3: å•æ¬¡ä¸Šå°é˜¶ (StairTest)
-void fun_d33_stair_test(void)
+void fun_e31()//¿ÆÄ¿Ò»
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0) { stair_single_start(); e->init_flag = 1; }
-    stair_single_run();
-    if (stair_single_is_done()) func_index = MENU_L1_D;
+  
+
 }
 
-// D4: å¹³åœ°è·³è·ƒæµ‹è¯• (JumpTest) â€” é€»è¾‘åœ¨ Stair_test.c
-void fun_d34_jump_test(void)
+void fun_e32()//¿ÆÄ¿¶þ
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0) { stair_jump_start();   e->init_flag = 1; }
-    stair_jump_run();
-    if (stair_jump_is_done())  func_index = MENU_L1_D;
+
 }
-void fun_d35_one_bridge(void)
+
+void fun_e33()//¿ÆÄ¿Èý
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        one_bridge_set_auto(1);
-        e->init_flag = 1;
-    }
 
-    ips_show_string(8 * 0, 16 * 0, "One Bridge Auto");
-    ips_show_string(8 * 0, 16 * 1, "Auto:");  ips_show_int(8 * 10, 16 * 1, one_bridge.auto_enable, 1);
-    ips_show_string(8 * 0, 16 * 2, "State:"); ips_show_string(8 * 10, 16 * 2, one_bridge_state_name(one_bridge.state));
-    ips_show_string(8 * 0, 16 * 3, "Side:");  ips_show_string(8 * 10, 16 * 3, one_bridge_side_name(one_bridge.side));
-    ips_show_string(8 * 0, 16 * 4, "Roll:");  ips_show_float(8 * 10, 16 * 4, one_bridge.roll_filtered, 5, 2);
-    ips_show_string(8 * 0, 16 * 5, "Leg:");   ips_show_int(8 * 10, 16 * 5, one_bridge.leg_offset, 5);
-    ips_show_string(8 * 0, 16 * 6, "Motor:"); ips_show_int(8 * 10, 16 * 6, one_bridge.motor_adj, 5);
-    ips_show_string(8 * 0, 16 * 7, "Dist:");  ips_show_float(8 * 10, 16 * 7, one_bridge.distance, 5, 1);
-    ips_show_string(8 * 0, 16 * 8, "Cool:");  ips_show_int(8 * 10, 16 * 8, one_bridge.cooldown, 4);
 }
 
-void fun_d36_rotation(void)
+void fun_e34()
 {
-    key_table *e = &table_dispaly[func_index];
-    if (e->init_flag == 0)
-    {
-        if (one_bridge_is_active())
-        {
-            one_bridge_abort();
-        }
 
-        fuxian       = 0;
-        target_speed = 0.0f;
-        run_state    = 1;
-        STOP_FLAG    = 1;
-        rotation_stop();
-        rotation_start_turns(ROT_CW, ROTATION_TEST_DUTY, ROTATION_TEST_TURNS);
-        e->init_flag = 1;
-    }
 
-    ips_show_string(8 * 0, 16 * 0, "Rotation 3T");
-    ips_show_string(8 * 0, 16 * 1, "State:"); ips_show_string(8 * 10, 16 * 1, rotation_state_name(rotation.state));
-    ips_show_string(8 * 0, 16 * 2, "Duty:");  ips_show_int(8 * 10, 16 * 2, rotation.turn_duty, 5);
-    ips_show_string(8 * 0, 16 * 3, "Angle:"); ips_show_float(8 * 10, 16 * 3, rotation.accumulated_angle, 5, 1);
-    ips_show_string(8 * 0, 16 * 4, "Target:");ips_show_float(8 * 10, 16 * 4, rotation.target_angle, 5, 1);
-    ips_show_string(8 * 0, 16 * 5, "Yaw:");   ips_show_float(8 * 10, 16 * 5, roll_balance_cascade.posture_value.yaw, 5, 1);
-    ips_show_string(8 * 0, 16 * 6, "Time:");  ips_show_int(8 * 10, 16 * 6, rotation.elapsed, 5);
-
-    if (rotation_is_done())
-    {
-        target_speed = 0.0f;
-        rotation_stop();
-        func_index = MENU_L1_D;
-    }
 }
+
+
+void fun_e35()
+{
+
+
+}
+

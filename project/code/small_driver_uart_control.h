@@ -14,17 +14,17 @@
 
 typedef struct
 {
-    uint8 send_data_buffer[7];                  // å‘é€ç¼“å†²æ•°ç»„
+    uint8 send_data_buffer[7];                  // ·¢ËÍ»º³åÊı×é
 
-    uint8 receive_data_buffer[7];               // æ¥æ”¶ç¼“å†²æ•°ç»„
+    uint8 receive_data_buffer[7];               // ½ÓÊÕ»º³åÊı×é
 
-    uint8 receive_data_count;                   // æ¥æ”¶è®¡æ•°
+    uint8 receive_data_count;                   // ½ÓÊÕ¼ÆÊı
 
-    uint8 sum_check_data;                       // æ ¡éªŒä½
+    uint8 sum_check_data;                       // Ğ£ÑéÎ»
 
-    int16 receive_left_speed_data;              // æ¥æ”¶åˆ°çš„å·¦ä¾§ç”µæœºé€Ÿåº¦æ•°æ®
+    int16 receive_left_speed_data;              // ½ÓÊÕµ½µÄ×ó²àµç»úËÙ¶ÈÊı¾İ
 
-    int16 receive_right_speed_data;             // æ¥æ”¶åˆ°çš„å³ä¾§ç”µæœºé€Ÿåº¦æ•°æ®
+    int16 receive_right_speed_data;             // ½ÓÊÕµ½µÄÓÒ²àµç»úËÙ¶ÈÊı¾İ
 
 }small_device_value_struct;
 
@@ -32,12 +32,12 @@ extern small_device_value_struct motor_value;
 
 
 
-void uart_control_callback(void);                                   // æ— åˆ·é©±åŠ¨ ä¸²å£æ¥æ”¶å›è°ƒå‡½æ•°
+void uart_control_callback(void);                                   // ÎŞË¢Çı¶¯ ´®¿Ú½ÓÊÕ»Øµ÷º¯Êı
 
-void small_driver_set_duty(int16 left_duty, int16 right_duty);      // æ— åˆ·é©±åŠ¨ è®¾ç½®ç”µæœºå ç©ºæ¯”
+void small_driver_set_duty(int16 left_duty, int16 right_duty);      // ÎŞË¢Çı¶¯ ÉèÖÃµç»úÕ¼¿Õ±È
 
-void small_driver_get_speed(void);                                  // æ— åˆ·é©±åŠ¨ è·å–é€Ÿåº¦ä¿¡æ¯
+void small_driver_get_speed(void);                                  // ÎŞË¢Çı¶¯ »ñÈ¡ËÙ¶ÈĞÅÏ¢
 
-void small_driver_uart_init(void);                                  // æ— åˆ·é©±åŠ¨ ä¸²å£é€šè®¯åˆå§‹åŒ–
+void small_driver_uart_init(void);                                  // ÎŞË¢Çı¶¯ ´®¿ÚÍ¨Ñ¶³õÊ¼»¯
 
 #endif

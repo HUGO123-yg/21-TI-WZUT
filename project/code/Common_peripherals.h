@@ -8,7 +8,7 @@
 #define SWITCH2                 (P21_5)
 #define SWITCH1                 (P21_6)
 
-////IPS114å®å®šä¹‰
+////IPS114ºê¶¨Òå
 //#define ips_show_string                  ips114_show_string
 //#define ips_show_int                     ips114_show_int
 //#define ips_show_uint                    ips114_show_uint
@@ -18,7 +18,7 @@
 //#define ips_init                         ips114_init
 //#define ips_show_rgb565_image            ips114_show_rgb565_image
 
-//IPS200å®å®šä¹‰
+//IPS200ºê¶¨Òå
 #define ips_show_string                  ips200_show_string
 #define ips_show_int                     ips200_show_int
 #define ips_show_uint                    ips200_show_uint
@@ -32,64 +32,58 @@
 #define M_MIN  -3000
 
 
-#define STEER_1_PWM      (TCPWM_CH10_P05_1)   // èˆµæœºæ§åˆ¶å¼•è„š  æ³¨ï¼šå·¦ä¸Šèˆµæœº  
-#define STEER_1_FRE      (300)                // èˆµæœºæ§åˆ¶é¢‘ç‡
-#define STEER_1_DIR      (1)                  // èˆµæœºæ—‹è½¬æ–¹å‘(è½¦ä½“å‡é«˜æ–¹å‘)
-#define STEER_1_CENTER   (4400)               // èˆµæœºä¸­å¿ƒå€¼(åˆå§‹ä¿æŒä½ç½®ï¼Œå¤§è…¿æ°´å¹³)
+#define STEER_1_PWM      (TCPWM_CH10_P05_1)   // ¶æ»ú¿ØÖÆÒı½Å  ×¢£º×óÉÏ¶æ»ú  
+#define STEER_1_FRE      (300)                // ¶æ»ú¿ØÖÆÆµÂÊ
+#define STEER_1_DIR      (1)                  // ¶æ»úĞı×ª·½Ïò(³µÌåÉı¸ß·½Ïò)
+#define STEER_1_CENTER   (4400)               // ¶æ»úÖĞĞÄÖµ(³õÊ¼±£³ÖÎ»ÖÃ£¬´óÍÈË®Æ½)
 
-#define STEER_2_PWM      (TCPWM_CH12_P05_3)   // èˆµæœºæ§åˆ¶å¼•è„š  æ³¨ï¼šå³ä¸Šèˆµæœº
-#define STEER_2_FRE      (300)                // èˆµæœºæ§åˆ¶é¢‘ç‡
-#define STEER_2_DIR      (-1)                 // èˆµæœºæ—‹è½¬æ–¹å‘(è½¦ä½“å‡é«˜æ–¹å‘)
-#define STEER_2_CENTER   (4400)               // èˆµæœºä¸­å¿ƒå€¼(åˆå§‹ä¿æŒä½ç½®ï¼Œå¤§è…¿æ°´å¹³)//4700
+#define STEER_2_PWM      (TCPWM_CH12_P05_3)   // ¶æ»ú¿ØÖÆÒı½Å  ×¢£ºÓÒÉÏ¶æ»ú
+#define STEER_2_FRE      (300)                // ¶æ»ú¿ØÖÆÆµÂÊ
+#define STEER_2_DIR      (-1)                 // ¶æ»úĞı×ª·½Ïò(³µÌåÉı¸ß·½Ïò)
+#define STEER_2_CENTER   (4400)               // ¶æ»úÖĞĞÄÖµ(³õÊ¼±£³ÖÎ»ÖÃ£¬´óÍÈË®Æ½)//4700
 
-#define STEER_3_PWM      (TCPWM_CH09_P05_0)   // èˆµæœºæ§åˆ¶å¼•è„š  æ³¨ï¼šå·¦ä¸‹èˆµæœº
-#define STEER_3_FRE      (300)                // èˆµæœºæ§åˆ¶é¢‘ç‡
-#define STEER_3_DIR      (-1)                 // èˆµæœºæ—‹è½¬æ–¹å‘(è½¦ä½“å‡é«˜æ–¹å‘)
-#define STEER_3_CENTER   (4700)               // èˆµæœºä¸­å¿ƒå€¼(åˆå§‹ä¿æŒä½ç½®ï¼Œå¤§è…¿æ°´å¹³)
+#define STEER_3_PWM      (TCPWM_CH09_P05_0)   // ¶æ»ú¿ØÖÆÒı½Å  ×¢£º×óÏÂ¶æ»ú
+#define STEER_3_FRE      (300)                // ¶æ»ú¿ØÖÆÆµÂÊ
+#define STEER_3_DIR      (-1)                 // ¶æ»úĞı×ª·½Ïò(³µÌåÉı¸ß·½Ïò)
+#define STEER_3_CENTER   (4700)               // ¶æ»úÖĞĞÄÖµ(³õÊ¼±£³ÖÎ»ÖÃ£¬´óÍÈË®Æ½)
 
-#define STEER_4_PWM      (TCPWM_CH11_P05_2)   // èˆµæœºæ§åˆ¶å¼•è„š  æ³¨ï¼šå³ä¸‹èˆµæœº
-#define STEER_4_FRE      (300)                // èˆµæœºæ§åˆ¶é¢‘ç‡
-#define STEER_4_DIR      (1)                  // èˆµæœºæ—‹è½¬æ–¹å‘(è½¦ä½“å‡é«˜æ–¹å‘)
-#define STEER_4_CENTER   (4200)               // èˆµæœºä¸­å¿ƒå€¼(åˆå§‹ä¿æŒä½ç½®ï¼Œå¤§è…¿æ°´å¹³)
-
-#define STEER_STABLE_LOW_CG_OFFSET  (-160)  // åˆå§‹ç¨³æ€ä½é‡å¿ƒç«™å§¿åç§»
-#define STEER_1_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_2_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_3_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
-#define STEER_4_DEFAULT_OFFSET      (STEER_STABLE_LOW_CG_OFFSET)
+#define STEER_4_PWM      (TCPWM_CH11_P05_2)   // ¶æ»ú¿ØÖÆÒı½Å  ×¢£ºÓÒÏÂ¶æ»ú
+#define STEER_4_FRE      (300)                // ¶æ»ú¿ØÖÆÆµÂÊ
+#define STEER_4_DIR      (1)                  // ¶æ»úĞı×ª·½Ïò(³µÌåÉı¸ß·½Ïò)
+#define STEER_4_CENTER   (4200)               // ¶æ»úÖĞĞÄÖµ(³õÊ¼±£³ÖÎ»ÖÃ£¬´óÍÈË®Æ½)
 
 
 typedef struct
 {
-    pwm_channel_enum        pwm_pin;                // PWM é€šé“å¼•è„š
-    int16                   control_frequency;      // æ§åˆ¶é¢‘ç‡ï¼ˆHzï¼‰
-    int16                   steer_dir;              // è½¬åŠ¨æ–¹å‘ï¼ˆ1 æ­£æ–¹å‘ / -1 åæ–¹å‘ï¼‰
-    int16                   center_num;              // ä¸­å¿ƒä½ç½®å€¼ï¼ˆåˆå§‹ä½ç½®ï¼‰
+    pwm_channel_enum        pwm_pin;                // PWM Í¨µÀÒı½Å
+    int16                   control_frequency;      // ¿ØÖÆÆµÂÊ£¨Hz£©
+    int16                   steer_dir;              // ×ª¶¯·½Ïò£¨1 Õı·½Ïò / -1 ·´·½Ïò£©
+    int16                   center_num;              // ÖĞĞÄÎ»ÖÃÖµ£¨³õÊ¼Î»ÖÃ£©
 
-    int16                   steer_state;             // èˆµæœºå½“å‰çŠ¶æ€ï¼ˆ0 ç¦ç”¨ / 1 ä½¿èƒ½ï¼‰
-    int16                   now_location;            // èˆµæœºå½“å‰ä½ç½®ï¼ˆPWM å ç©ºæ¯”å€¼ï¼‰
+    int16                   steer_state;             // ¶æ»úµ±Ç°×´Ì¬£¨0 ½ûÓÃ / 1 Ê¹ÄÜ£©
+    int16                   now_location;            // ¶æ»úµ±Ç°Î»ÖÃ£¨PWM Õ¼¿Õ±ÈÖµ£©
 } steer_control_struct;
 
 
-// ******************è½¦ä½“é€Ÿåº¦ä¸é‡Œç¨‹è®¡ç®—******************
-#define wheel_diameter (6.4f) // è½®å­ç›´å¾„ å•ä½CM
+// ******************³µÌåËÙ¶ÈÓëÀï³Ì¼ÆËã******************
+#define wheel_diameter (6.4f) // ÂÖ×ÓÖ±¾¶ µ¥Î»CM
 
 typedef struct
 {
-    float speed_L;   // å·¦è½®é€Ÿåº¦
-    float speed_R;   // å³è½®é€Ÿåº¦
-    float speed;     // è½¦ä½“é€Ÿåº¦
-    float mileage_L; // å·¦è½®é‡Œç¨‹
-    float mileage_R; // å³è½®é‡Œç¨‹
-    float mileage;   // è½¦ä½“é‡Œç¨‹
+    float speed_L;   // ×óÂÖËÙ¶È
+    float speed_R;   // ÓÒÂÖËÙ¶È
+    float speed;     // ³µÌåËÙ¶È
+    float mileage_L; // ×óÂÖÀï³Ì
+    float mileage_R; // ÓÒÂÖÀï³Ì
+    float mileage;   // ³µÌåÀï³Ì
 } Car_param_t;
 
 extern Car_param_t Car;
 
-extern volatile uint8 key1_flag;
-extern volatile uint8 key2_flag;
-extern volatile uint8 key3_flag;
-extern volatile uint8 key4_flag;
+extern uint8 key1_flag;
+extern uint8 key2_flag;
+extern uint8 key3_flag;
+extern uint8 key4_flag;
 
 
 extern int16 car_speed;

@@ -1459,28 +1459,10 @@
             <name>$PROJ_DIR$\..\..\code\Menu.h</name>
         </file>
         <file>
-            <name>$PROJ_DIR$\..\..\code\One_bridge.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\One_bridge.h</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Rotation.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Rotation.h</name>
-        </file>
-        <file>
             <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.c</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\small_driver_uart_control.h</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Stair_test.c</name>
-        </file>
-        <file>
-            <name>$PROJ_DIR$\..\..\code\Stair_test.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\日志.txt</name>
