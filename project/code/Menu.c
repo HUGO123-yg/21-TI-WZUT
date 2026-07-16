@@ -1,909 +1,530 @@
-/*
- * Menu.c
- *
- *  Created on: 2026年3月24日
- *      Author: 24244
- */
-
 #include "zf_common_headfile.h"
 
-int  func_index = 0; //初始显示欢迎界面
-int  last_index = 127; //last初始为无效值
+typedef void (*menu_action_t)(void);
 
-
-void (*current_operation_index)(void);       //显示函数索引指针(当前操作索引)
-
-key_table table_dispaly[100]=                 //结构体数组
+typedef enum
 {
-//{索引，向上，向下，确认，显示函数}
-    //第0层
-    {0,0,0,1,(*fun_0)},                     //AIIT_meun
+    MENU_ITEM_ACTION,
+    MENU_ITEM_SUBMENU,
+    MENU_ITEM_BACK
+} menu_item_type_t;
 
-    //第1层
-    {1,6,2, 7,(*fun_a1)},
-    {2,1,3,13,(*fun_b1)},
-    {3,2,4,19,(*fun_c1)},
-    {4,3,5,25,(*fun_d1)},
-    {5,4,6,31,(*fun_e1)},
-    {6,5,1, 0,(*fun_f1)},
+typedef struct menu_page menu_page_t;
 
-    //第2层
-    {7,12, 8, 37, (*fun_a21)},
-    {8, 7, 9, 38, (*fun_a22)},
-    {9, 8, 10,39, (*fun_a23)},
-    {10,9, 11,40, (*fun_a24)},
-    {11,10,12,41, (*fun_a25)},
-    {12,11,7,  1, (*fun_a26)},            //ESC
+typedef struct
+{
+    const char *name;
+    menu_item_type_t type;
+    menu_action_t action;
+    const menu_page_t *submenu;
+} menu_item_t;
 
-    {13,18,14,42, (*fun_b21)},
-    {14,13,15,43, (*fun_b22)},
-    {15,14,16,44, (*fun_b23)},
-    {16,15,17,45, (*fun_b24)},
-    {17,16,18,46, (*fun_b25)},
-    {18,17,13, 2, (*fun_b26)},           //ESC
-
-    {19,24,20,47, (*fun_c21)},
-    {20,19,21,48, (*fun_c22)},
-    {21,20,22,49, (*fun_c23)},
-    {22,21,23,50, (*fun_c24)},
-    {23,22,24,51, (*fun_c25)},
-    {24,23,19,3,  (*fun_c26)},           //ESC
-
-    {25,30,26,52, (*fun_d21)},
-    {26,25,27,53, (*fun_d22)},
-    {27,26,28,54, (*fun_d23)},
-    {28,27,29,55, (*fun_d24)},
-    {29,28,30,56, (*fun_d25)},
-    {30,29,25,4,  (*fun_d26)},           //ESC
-
-    {31,36,32,57, (*fun_e21)},
-    {32,31,33,58, (*fun_e22)},
-    {33,32,34,59, (*fun_e23)},
-    {34,33,35,60, (*fun_e24)},
-    {35,34,36,61, (*fun_e25)},
-    {36,35,31,5,  (*fun_e26)},           //ESC
-
-    //第3层
-    {37,37,37,7, (*fun_a31)},
-    {38,38,38,8, (*fun_a32)},
-    {39,39,39,9, (*fun_a33)},
-    {40,40,40,10,(*fun_a34)},
-    {41,41,41,11,(*fun_a35)},
-
-    {42,42,42,13,(*fun_b31)},
-    {43,43,43,14,(*fun_b32)},
-    {44,44,44,15,(*fun_b33)},
-    {45,45,45,16,(*fun_b34)},
-    {46,46,46,17,(*fun_b35)},
-
-    {47,47,47,19,(*fun_c31)},
-    {48,48,48,20,(*fun_c32)},
-    {49,49,49,21,(*fun_c33)},
-    {50,50,50,22,(*fun_c34)},
-    {51,51,51,23,(*fun_c35)},
-
-    {52,52,52,25,(*fun_d31)},
-    {53,53,53,26,(*fun_d32)},
-    {54,54,54,27,(*fun_d33)},
-    {55,55,55,28,(*fun_d34)},
-    {56,56,56,29,(*fun_d35)},
-
-    {57,57,57,31,(*fun_e31)},
-    {58,58,58,32,(*fun_e32)},
-    {59,59,59,33,(*fun_e33)},
-    {60,60,60,34,(*fun_e34)},
-    {61,61,61,35,(*fun_e35)},
+struct menu_page
+{
+    const char *title;
+    const menu_item_t *items;
+    uint8 item_count;
 };
 
-
-void Menu(void)//菜单函数
+typedef enum
 {
+    MENU_VIEW_WELCOME,
+    MENU_VIEW_LIST,
+    MENU_VIEW_ACTION
+} menu_view_t;
 
+#define MENU_ARRAY_SIZE(array) ((uint8)(sizeof(array) / sizeof((array)[0])))
 
+/*
+ * Add a normal menu option by copying one MENU_ACTION line in the menu
+ * configuration below, then changing only its displayed name and callback.
+ * The callback runs repeatedly while the action page is open. Put one-shot
+ * work inside `if (Menu_IsActionFirstCall())`.
+ */
+#define MENU_ACTION(name_, callback_) \
+    { (name_), MENU_ITEM_ACTION, (callback_), NULL }
+#define MENU_SUBMENU(name_, page_) \
+    { (name_), MENU_ITEM_SUBMENU, NULL, &(page_) }
+#define MENU_BACK(name_) \
+    { (name_), MENU_ITEM_BACK, NULL, NULL }
 
-                if(key1_flag)
-                {
+#define MENU_MAX_DEPTH 4U
 
-                    func_index = table_dispaly[func_index].up;    //向上翻
-                    key1_clear();
-                }
-                if(key2_flag)
-                {
+static uint8 menu_action_first_call = 0U;
 
-                    func_index = table_dispaly[func_index].down;    //向下翻
-                     key2_clear();
-
-                }
-                if(key3_flag)
-                {
-
-                    func_index = table_dispaly[func_index].enter;    //确认
-                    key3_clear();
-
-                }
-
-
-            if (func_index != last_index)
-            {
-                current_operation_index = table_dispaly[func_index].current_operation;
-
-                ips200_clear();
-                (*current_operation_index)();//执行当前操作函数
-                last_index = func_index;
-
-            }
-            else
-            {
-                (*current_operation_index)();//执行当前操作函数
-            }
-  }
-
-
-///*********第0层***********/
-void fun_0()
+int Menu_IsActionFirstCall(void)
 {
-
-
-//    show_rgb565_image(0,16*5, (const uint16 *)gImage_ORRN, 240, 135, 240, 135, 0);
-    ips200_show_string(100,300,"Designed_by_WMCA");
-
-
+    return (menu_action_first_call != 0U);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////第一层///////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_a1()
+static void nav_record_action(uint8 path_id, const char *title)
 {
+    ips_show_string(0, 16 * 0, title);
 
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_b1()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-
-
-}
-
-void fun_c1()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-
-
-}
-
-void fun_d1()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "GO");                ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_e1()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-void fun_f1()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "GO");                 ips200_show_string(8*23, 16*19, "Page_1");
-    ips200_show_string(20, 16*2, "B");
-    ips200_show_string(20, 16*3, "C");
-    ips200_show_string(20, 16*4, "D");
-    ips200_show_string(20, 16*5, "E");
-    ips200_show_string(20, 16*6, "ESC");
-
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////第二层///////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_a21()//
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a22()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a23()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a24()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_a25()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-void fun_a26()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "A_4");
-    ips200_show_string(20, 16*5, "A_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_b21()
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Clear");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b22()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b23()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1,"Record");               ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b24()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");               ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b25()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_b26()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "B_4");
-    ips200_show_string(20, 16*5, "B_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_c21()
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,  "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c22()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,  "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c23()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1,"Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c24()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c25()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,"SAVE");
-    ips200_show_string(20, 16*3,"Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_c26()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Record");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2,"SAVE");
-    ips200_show_string(20, 16*3, "Reproduce");
-    ips200_show_string(20, 16*4, "Mt9v03_text");
-    ips200_show_string(20, 16*5, "C_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void fun_d21()
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d22()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d23()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d24()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d25()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_d26()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "D_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "D_2");
-    ips200_show_string(20, 16*3, "D_3");
-    ips200_show_string(20, 16*4, "D_4");
-    ips200_show_string(20, 16*5, "D_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_e21()
-{
-    ips200_show_string(0,  16*1, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e22()
-{
-    ips200_show_string(0,  16*2, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e23()
-{
-    ips200_show_string(0,  16*3, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e24()
-{
-    ips200_show_string(0,  16*4, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e25()
-{
-    ips200_show_string(0,  16*5, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-void fun_e26()
-{
-    ips200_show_string(0,  16*6, "->");
-    ips200_show_string(20, 16*1, "Start_1");                ips200_show_string(8*23, 16*19, "Page_2");
-    ips200_show_string(20, 16*2, "Start_2");
-    ips200_show_string(20, 16*3, "Start_3");
-    ips200_show_string(20, 16*4, "Start_4");
-    ips200_show_string(20, 16*5, "E_5");
-    ips200_show_string(20, 16*6, "ESC");
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////第三层///////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void fun_a31()//科目一相关
-{
-    ips_show_string(8*0, 16*0, "P1 recording....");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (Menu_IsActionFirstCall())
     {
-        Init_Nag_Path(1);             // 初始化路径1
-        N.Nag_SystemRun_Index = 1;     // 启动惯导录制
-        once_flag = 1;
+        Init_Nag_Path(path_id);
+        N.Nag_SystemRun_Index = 1;
     }
 
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
+    ips_show_string(0, 16 * 1, "Distance");
+    ips_show_float(8 * 10, 16 * 1, N.Mileage_All, 5, 3);
+    ips_show_string(0, 16 * 2, "Angular");
+    ips_show_float(8 * 10, 16 * 2, Nag_Yaw, 5, 3);
+    ips_show_string(0, 16 * 3, "SaveIdx");
+    ips_show_int(8 * 10, 16 * 3, N.Save_index, 5);
 }
 
-void fun_a32()//科目二相关
+static void nav_save_action(const char *title)
 {
- ips_show_string(8*0, 16*0, "P1 SAVE....");
+    ips_show_string(0, 16 * 0, title);
 
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (Menu_IsActionFirstCall() && N.Nag_SystemRun_Index == 1)
     {
-        if (N.Nag_SystemRun_Index == 1)
-        {
-            N.End_f = 1;  // 中止惯导运行，停止采集
-        }
-        once_flag = 1;
+        N.End_f = 1;
     }
-
 }
 
-void fun_a33()//科目三
+static void nav_replay_action(uint8 path_id, const char *title)
 {
- 
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (Menu_IsActionFirstCall())
     {
-       Init_Nag_Path(1);             // 选择路径1
-        N.Nag_SystemRun_Index = 2;     // 复现
-        fuxian = 1;                    // 轨迹环开启
-        target_speed = user_set_speed;
-        once_flag = 1;
-    }
-
-    ips_show_string(8*0, 16*0, "P1 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
-}
-
-void fun_a34()//科目四
-{
-    ips_show_string(8*0, 16*0, "P1 Clear...");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-        // 擦除路径1的所有Flash页
-        for (uint8 page = NAG_PATH1_END; page <= NAG_PATH1_START; page++)
-        {
-            if (flash_check(0, page))
-                flash_erase_page(0, page);
-        }
-        // 清除元数据页中路径1的Save_index
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 0].uint32_type = 0;  // 路径1 Save_index清零
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
-
-        Init_Nag_Path(1);  // 重新初始化
-        once_flag = 1;
-    }
-
-    ips_show_string(8*0, 16*2, "P1 Data Cleared!");
-}
-
-
-void fun_a35()//强制清除数据
-{
-
-}
-
-void fun_b31()
-{
-    ips_show_string(8*0, 16*0, "P2 recording....");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-        Init_Nag_Path(2);             // 初始化路径2
-        N.Nag_SystemRun_Index = 1;     // 启动惯导录制
-        once_flag = 1;
-    }
-
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
-
-
-}
-
-void fun_b32()
-{
-ips_show_string(8*0, 16*0, "P2 SAVE....");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-        if (N.Nag_SystemRun_Index == 1)
-        {
-            N.End_f = 1;
-        }
-        once_flag = 1;
-    }
-
-
-}
-
-void fun_b33()
-{
-static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-        Init_Nag_Path(2);               // 选择路径2
-        N.Nag_SystemRun_Index = 2;     // 复现
+        Init_Nag_Path(path_id);
+        N.Nag_SystemRun_Index = 2;
         fuxian = 1;
         target_speed = user_set_speed;
-        once_flag = 1;
     }
 
-    ips_show_string(8*0, 16*0, "P2 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
+    ips_show_string(0, 16 * 0, title);
+    ips_show_string(0, 16 * 1, "BASE");
+    ips_show_float(8 * 10, 16 * 1,
+                   -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
+    ips_show_string(0, 16 * 2, "TRACK");
+    ips_show_float(8 * 10, 16 * 2, track_cascade.track_cycle.out, 5, 3);
+    ips_show_string(0, 16 * 3, "GD_SC");
+    ips_show_float(8 * 10, 16 * 3, N.Final_Out, 5, 3);
+    ips_show_string(0, 16 * 4, "Nag_Yaw");
+    ips_show_float(8 * 10, 16 * 4, Nag_Yaw, 5, 3);
+    ips_show_string(0, 16 * 5, "Angle_Run");
+    ips_show_float(8 * 10, 16 * 5, N.Angle_Run, 5, 3);
+    ips_show_string(0, 16 * 6, "SaveIdx:");
+    ips_show_int(8 * 10, 16 * 6, N.Save_index, 5);
+    ips_show_string(0, 16 * 7, "Nav0:");
+    ips_show_float(8 * 10, 16 * 7, Nav_read[0] / 100.0f, 5, 2);
 }
 
-
-
-
-void fun_b34()
+static void nav_clear_action(uint8 path_id, const char *title,
+                             const char *done_text)
 {
-   ips_show_string(8*0, 16*0, "P2 Clear...");
+    ips_show_string(0, 16 * 0, title);
 
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (Menu_IsActionFirstCall())
     {
-        for (uint8 page = NAG_PATH2_END; page <= NAG_PATH2_START; page++)
+        flash_Nag_Clear_Path(path_id);
+    }
+
+    ips_show_string(0, 16 * 2, done_text);
+}
+
+static void path1_record(void)
+{
+    nav_record_action(1U, "P1 recording....");
+}
+
+static void path1_save(void)
+{
+    nav_save_action("P1 SAVE....");
+}
+
+static void path1_replay(void)
+{
+    nav_replay_action(1U, "P1 Replay");
+}
+
+static void path1_clear(void)
+{
+    nav_clear_action(1U, "P1 Clear...", "P1 Data Cleared!");
+}
+
+static void path2_record(void)
+{
+    nav_record_action(2U, "P2 recording....");
+}
+
+static void path2_save(void)
+{
+    nav_save_action("P2 SAVE....");
+}
+
+static void path2_replay(void)
+{
+    nav_replay_action(2U, "P2 Replay");
+}
+
+static void path2_clear(void)
+{
+    nav_clear_action(2U, "P2 Clear...", "P2 Data Cleared!");
+}
+
+static void path3_record(void)
+{
+    nav_record_action(3U, "P3 recording....");
+}
+
+static void path3_save(void)
+{
+    nav_save_action("P3 SAVE....");
+}
+
+static void path3_replay(void)
+{
+    nav_replay_action(3U, "P3 Replay");
+}
+
+static void path3_clear(void)
+{
+    nav_clear_action(3U, "P3 Clear...", "P3 Data Cleared!");
+}
+
+static void empty_action(void)
+{
+}
+
+/*
+ * Menu configuration
+ *
+ * Normal action:
+ *     MENU_ACTION("Displayed name", callback_function),
+ *
+ * Child menu:
+ *     MENU_SUBMENU("Displayed name", child_menu),
+ *
+ * Return item:
+ *     MENU_BACK("ESC"),
+ */
+static const menu_item_t path1_items[] =
+{
+    MENU_ACTION("Record",    path1_record),
+    MENU_ACTION("SAVE",      path1_save),
+    MENU_ACTION("Reproduce", path1_replay),
+    MENU_ACTION("Clear",     path1_clear),
+    MENU_ACTION("A_5",       empty_action),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t path1_menu =
+{
+    "Page_2",
+    path1_items,
+    MENU_ARRAY_SIZE(path1_items)
+};
+
+static const menu_item_t path2_items[] =
+{
+    MENU_ACTION("Record",    path2_record),
+    MENU_ACTION("SAVE",      path2_save),
+    MENU_ACTION("Reproduce", path2_replay),
+    MENU_ACTION("Clear",     path2_clear),
+    MENU_ACTION("B_5",       empty_action),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t path2_menu =
+{
+    "Page_2",
+    path2_items,
+    MENU_ARRAY_SIZE(path2_items)
+};
+
+static const menu_item_t path3_items[] =
+{
+    MENU_ACTION("Record",    path3_record),
+    MENU_ACTION("SAVE",      path3_save),
+    MENU_ACTION("Reproduce", path3_replay),
+    MENU_ACTION("Clear",     path3_clear),
+    MENU_ACTION("C_5",       empty_action),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t path3_menu =
+{
+    "Page_2",
+    path3_items,
+    MENU_ARRAY_SIZE(path3_items)
+};
+
+static const menu_item_t test_d_items[] =
+{
+    MENU_ACTION("D_1", empty_action),
+    MENU_ACTION("D_2", empty_action),
+    MENU_ACTION("D_3", empty_action),
+    MENU_ACTION("D_4", empty_action),
+    MENU_ACTION("D_5", empty_action),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t test_d_menu =
+{
+    "Page_2",
+    test_d_items,
+    MENU_ARRAY_SIZE(test_d_items)
+};
+
+static const menu_item_t start_items[] =
+{
+    MENU_ACTION("Start_1", empty_action),
+    MENU_ACTION("Start_2", empty_action),
+    MENU_ACTION("Start_3", empty_action),
+    MENU_ACTION("Start_4", empty_action),
+    MENU_ACTION("E_5",     empty_action),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t start_menu =
+{
+    "Page_2",
+    start_items,
+    MENU_ARRAY_SIZE(start_items)
+};
+
+static const menu_item_t main_items[] =
+{
+    MENU_SUBMENU("GO", path1_menu),
+    MENU_SUBMENU("B",  path2_menu),
+    MENU_SUBMENU("C",  path3_menu),
+    MENU_SUBMENU("D",  test_d_menu),
+    MENU_SUBMENU("E",  start_menu),
+    MENU_BACK("ESC")
+};
+
+static const menu_page_t main_menu =
+{
+    "Page_1",
+    main_items,
+    MENU_ARRAY_SIZE(main_items)
+};
+
+static menu_view_t menu_view = MENU_VIEW_WELCOME;
+static const menu_page_t *current_page = &main_menu;
+static uint8 current_selection = 0U;
+static menu_action_t current_action = NULL;
+static uint8 menu_redraw = 1U;
+
+static const menu_page_t *page_stack[MENU_MAX_DEPTH];
+static uint8 selection_stack[MENU_MAX_DEPTH];
+static uint8 menu_depth = 0U;
+
+static void menu_draw_welcome(void)
+{
+    ips200_clear();
+    ips200_show_string(100, 300, "Designed_by_WMCA");
+}
+
+static void menu_draw_page(void)
+{
+    uint8 index;
+
+    ips200_clear();
+
+    for (index = 0U; index < current_page->item_count; index++)
+    {
+        uint16 y = (uint16)(16U * (index + 1U));
+
+        if (index == current_selection)
         {
-            if (flash_check(0, page))
-                flash_erase_page(0, page);
+            ips200_show_string(0, y, "->");
         }
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 1].uint32_type = 0;  // 路径2 Save_index清零
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
-
-        Init_Nag_Path(2);
-        once_flag = 1;
+        ips200_show_string(20, y, current_page->items[index].name);
     }
 
-    ips_show_string(8*0, 16*2, "P2 Data Cleared!");
-
-
+    ips200_show_string(8 * 23, 16 * 19, current_page->title);
 }
 
-void fun_b35()
+static void menu_enter_submenu(const menu_page_t *submenu)
 {
-
-
-
-}
-
-void fun_c31()
-{
-  ips_show_string(8*0, 16*0, "P3 recording....");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (menu_depth >= MENU_MAX_DEPTH)
     {
-        Init_Nag_Path(3);             // 初始化路径3
-        N.Nag_SystemRun_Index = 1;     // 启动惯导录制
-        once_flag = 1;
+        return;
     }
 
-    ips_show_string(8*0, 16*1, "Distance"); ips_show_float(8*10, 16*1, N.Mileage_All, 5, 3);
-    ips_show_string(8*0, 16*2, "Angular");  ips_show_float(8*10, 16*2, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*3, "SaveIdx");   ips_show_int(8*10, 16*3, N.Save_index, 5);
+    page_stack[menu_depth] = current_page;
+    selection_stack[menu_depth] = current_selection;
+    menu_depth++;
 
+    current_page = submenu;
+    current_selection = 0U;
+    menu_redraw = 1U;
 }
 
-void fun_c32()
+static void menu_go_back(void)
 {
-  ips_show_string(8*0, 16*0, "P3 SAVE....");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
+    if (menu_depth == 0U)
     {
-        if (N.Nag_SystemRun_Index == 1)
+        current_page = &main_menu;
+        current_selection = 0U;
+        menu_view = MENU_VIEW_WELCOME;
+        menu_redraw = 1U;
+        return;
+    }
+
+    menu_depth--;
+    current_page = page_stack[menu_depth];
+    current_selection = selection_stack[menu_depth];
+    menu_redraw = 1U;
+}
+
+static void menu_activate_current_item(void)
+{
+    const menu_item_t *item = &current_page->items[current_selection];
+
+    switch (item->type)
+    {
+        case MENU_ITEM_ACTION:
+            current_action = item->action;
+            menu_action_first_call = 1U;
+            menu_view = MENU_VIEW_ACTION;
+            menu_redraw = 0U;
+            ips200_clear();
+            break;
+
+        case MENU_ITEM_SUBMENU:
+            menu_enter_submenu(item->submenu);
+            break;
+
+        case MENU_ITEM_BACK:
+            menu_go_back();
+            break;
+
+        default:
+            break;
+    }
+}
+
+static void menu_handle_list_keys(void)
+{
+    if (key1_flag)
+    {
+        if (current_selection == 0U)
         {
-            N.End_f = 1;
+            current_selection = (uint8)(current_page->item_count - 1U);
         }
-        once_flag = 1;
-    }
-
-}
-
-void fun_c33()
-{
-  static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-      Init_Nag_Path(3);             // 选择路径3
-        N.Nag_SystemRun_Index = 2;     // 复现
-        fuxian = 1;
-        target_speed = user_set_speed;
-        once_flag = 1;
-    }
-
-    ips_show_string(8*0, 16*0, "P3 Replay");
-    ips_show_string(8*0, 16*1, "BASE");     ips_show_float(8*10, 16*1, -roll_balance_cascade.angular_speed_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*2, "TRACK");    ips_show_float(8*10, 16*2, track_cascade.track_cycle.out, 5, 3);
-    ips_show_string(8*0, 16*3, "GD_SC");    ips_show_float(8*10, 16*3, N.Final_Out, 5, 3);
-    ips_show_string(8*0, 16*4, "Nag_Yaw");  ips_show_float(8*10, 16*4, Nag_Yaw, 5, 3);
-    ips_show_string(8*0, 16*5, "Angle_Run");ips_show_float(8*10, 16*5, N.Angle_Run, 5, 3);
-    ips_show_string(0, 16*6, "SaveIdx:");  ips_show_int(8*10, 16*6, N.Save_index, 5);
-    ips_show_string(0, 16*7, "Nav0:");     ips_show_float(8*10, 16*7, Nav_read[0] / 100.0f, 5, 2);
-}
-
-
-
-void fun_c34()
-{
- ips_show_string(8*0, 16*0, "P3 Clear...");
-
-    static uint8_t once_flag = 0;
-    if (once_flag == 0)
-    {
-        for (uint8 page = NAG_PATH3_END; page <= NAG_PATH3_START; page++)
+        else
         {
-            if (flash_check(0, page))
-                flash_erase_page(0, page);
+            current_selection--;
         }
-        flash_buffer_clear();
-        flash_read_page_to_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_union_buffer[MaxSize + 2].uint32_type = 0;  // 路径3 Save_index清零
-        if (flash_check(0, NAG_META_PAGE))
-            flash_erase_page(0, NAG_META_PAGE);
-        flash_write_page_from_buffer(0, NAG_META_PAGE, FLASH_PAGE_LENGTH);
-        flash_buffer_clear();
-
-        Init_Nag_Path(3);
-        once_flag = 1;
+        key1_clear();
+        menu_redraw = 1U;
     }
 
-    ips_show_string(8*0, 16*2, "P3 Data Cleared!");
+    if (key2_flag)
+    {
+        current_selection++;
+        if (current_selection >= current_page->item_count)
+        {
+            current_selection = 0U;
+        }
+        key2_clear();
+        menu_redraw = 1U;
+    }
 
+    if (key3_flag)
+    {
+        key3_clear();
+        menu_activate_current_item();
+    }
 }
 
-
-void fun_c35()
+static void menu_handle_welcome(void)
 {
-
-
+    if (key1_flag)
+    {
+        key1_clear();
+    }
+    if (key2_flag)
+    {
+        key2_clear();
+    }
+    if (key3_flag)
+    {
+        key3_clear();
+        menu_view = MENU_VIEW_LIST;
+        menu_redraw = 1U;
+    }
 }
 
-void fun_d31()
+static void menu_handle_action(void)
 {
+    if (key1_flag)
+    {
+        key1_clear();
+    }
+    if (key2_flag)
+    {
+        key2_clear();
+    }
+    if (key3_flag)
+    {
+        key3_clear();
+        current_action = NULL;
+        menu_view = MENU_VIEW_LIST;
+        menu_redraw = 1U;
+        return;
+    }
 
-
+    if (current_action != NULL)
+    {
+        current_action();
+        menu_action_first_call = 0U;
+    }
 }
 
-void fun_d32()
+static void menu_render_if_needed(void)
 {
+    if (!menu_redraw)
+    {
+        return;
+    }
 
-
+    if (menu_view == MENU_VIEW_WELCOME)
+    {
+        menu_draw_welcome();
+        menu_redraw = 0U;
+    }
+    else if (menu_view == MENU_VIEW_LIST)
+    {
+        menu_draw_page();
+        menu_redraw = 0U;
+    }
 }
 
-void fun_d33()
+void Menu(void)
 {
+    switch (menu_view)
+    {
+        case MENU_VIEW_WELCOME:
+            menu_handle_welcome();
+            break;
 
+        case MENU_VIEW_LIST:
+            menu_handle_list_keys();
+            if (menu_view == MENU_VIEW_ACTION)
+            {
+                menu_handle_action();
+            }
+            break;
 
+        case MENU_VIEW_ACTION:
+            menu_handle_action();
+            break;
+
+        default:
+            current_page = &main_menu;
+            current_selection = 0U;
+            menu_depth = 0U;
+            menu_view = MENU_VIEW_WELCOME;
+            menu_redraw = 1U;
+            break;
+    }
+
+    menu_render_if_needed();
 }
-
-void fun_d34()
-{
-
-
-}
-
-
-void fun_d35()
-{
-
-
-}
-
-void fun_e31()//科目一
-{
-  
-
-}
-
-void fun_e32()//科目二
-{
-
-}
-
-void fun_e33()//科目三
-{
-
-}
-
-void fun_e34()
-{
-
-
-}
-
-
-void fun_e35()
-{
-
-
-}
-

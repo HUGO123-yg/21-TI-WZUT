@@ -188,7 +188,7 @@ uint8 flash_write_page_from_buffer (uint32 sector_num, uint32 page_num, uint32 l
 //-------------------------------------------------------------------------------------------------------------------
 void flash_buffer_clear (void)
 {
-    memset(flash_union_buffer, 0xFF, FLASH_PAGE_LENGTH);
+    memset(flash_union_buffer, 0xFF, sizeof(flash_union_buffer));
 }
 
 //-------------------------------------------------------------------------------------------------------------------

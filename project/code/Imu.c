@@ -1,4 +1,5 @@
 #include "zf_common_headfile.h"
+#include "config.h"
 
 int IMU_MODE =1;
 
@@ -334,33 +335,32 @@ void quaternion_module_init(cascade_value_struct *cascade_value)
 //            同时备份一份初始参数用于后续恢复
 void balance_cascade_init (void)
 {
-     // 初始化横滚方向姿态解算参数
+     // 前后姿态闭环参数
     roll_balance_cascade.posture_value.call_cycle        = 0.001;     // 调用周期 0.001s (1ms)
-    roll_balance_cascade.posture_value.mechanical_zero  = -6.0f;      // 机械零点 -6度
+    roll_balance_cascade.posture_value.mechanical_zero  = BODY_PITCH_MECHANICAL_ZERO_DEG;
     roll_balance_cascade.posture_value.correct_kp        = 0.4f;        // 姿态修正KP 0.4
     roll_balance_cascade.posture_value.correct_ki        = 0.015f;      // 姿态修正KI 0.015
 
-    // 初始化横滚方向角速度环 PID 参数
-    roll_balance_cascade.angular_speed_cycle.i_value_max     = 1000;      // 积分项最大值
-    roll_balance_cascade.angular_speed_cycle.i_value_pro    = 0.1f;     // 积分项系数
-    roll_balance_cascade.angular_speed_cycle.out_max        = 10000;      // 输出最大值
+    roll_balance_cascade.angular_speed_cycle.i_value_max = BODY_PITCH_RATE_I_VALUE_MAX;
+    roll_balance_cascade.angular_speed_cycle.i_value_pro = BODY_PITCH_RATE_I_VALUE_PRO;
+    roll_balance_cascade.angular_speed_cycle.out_max     = BODY_PITCH_MOTOR_OUTPUT_MAX;
 
-    // 初始化横滚方向角度环 PID 参数
-    roll_balance_cascade.angle_cycle.i_value_max        = 1000;     // 积分项最大值
-    roll_balance_cascade.angle_cycle.i_value_pro         = 2.0f;        // 积分项系数
-    roll_balance_cascade.angle_cycle.out_max            = 10000;      // 输出最大值
-   // 初始化横滚方向速度环 PID 参数
+    roll_balance_cascade.angle_cycle.i_value_max = BODY_PITCH_ANGLE_I_VALUE_MAX;
+    roll_balance_cascade.angle_cycle.i_value_pro = BODY_PITCH_ANGLE_I_VALUE_PRO;
+    roll_balance_cascade.angle_cycle.out_max     = BODY_PITCH_RATE_TARGET_MAX;
+
+   // 初始化车辆速度环 PID 参数
     roll_balance_cascade.speed_cycle.i_value_max        = 500;    // 积分项最大值     
     roll_balance_cascade.speed_cycle.i_value_pro         = 0.005f;  // 积分项系数
     roll_balance_cascade.speed_cycle.out_max            = 2000;      // 输出最大值
-    // 设置横滚方向各 PID 环的 P/I/D 参数
-    roll_balance_cascade.angular_speed_cycle.p    = 1.1f;      // 角速度环 P
-    roll_balance_cascade.angular_speed_cycle.i    = 0.0f;       // 角速度环 I
-    roll_balance_cascade.angular_speed_cycle.d    = 0.0f;      // 角速度环 D
 
-    roll_balance_cascade.angle_cycle.p    = 700.0f;       // 角度环 P
-    roll_balance_cascade.angle_cycle.i    = 1.0f;        // 角度环 I
-    roll_balance_cascade.angle_cycle.d    = 50.0f;      // 角度环 D
+    roll_balance_cascade.angular_speed_cycle.p = BODY_PITCH_RATE_KP;
+    roll_balance_cascade.angular_speed_cycle.i = BODY_PITCH_RATE_KI;
+    roll_balance_cascade.angular_speed_cycle.d = BODY_PITCH_RATE_KD;
+
+    roll_balance_cascade.angle_cycle.p = BODY_PITCH_ANGLE_KP;
+    roll_balance_cascade.angle_cycle.i = BODY_PITCH_ANGLE_KI;
+    roll_balance_cascade.angle_cycle.d = BODY_PITCH_ANGLE_KD;
 
     roll_balance_cascade.speed_cycle.p    = 5.0f;    // 速度环 P//5
     roll_balance_cascade.speed_cycle.i    = 0.0f;      // 速度环 I
@@ -370,48 +370,48 @@ void balance_cascade_init (void)
     track_cascade.track_cycle.i=0;
     track_cascade.track_cycle.d=0;
 
- // 备份横滚方向的初始参数
+ // 备份前后姿态闭环的初始参数
     memcpy(&roll_balance_cascade_resave, &roll_balance_cascade, sizeof(roll_balance_cascade_resave));
    // 初始化四元数模块
     quaternion_module_init(&roll_balance_cascade);
 
-    // 初始化俯仰方向姿态解算参数
+    // 该结构体作为横滚腿部闭环使用；姿态值来自 roll_balance_cascade 的四元数解算
 
     pitch_balance_cascade.posture_value.call_cycle        = 0.001;     // 调用周期 0.001s (1ms)
-    pitch_balance_cascade.posture_value.mechanical_zero  = 0.0f;       // 机械零点 0度
+    pitch_balance_cascade.posture_value.mechanical_zero  = BODY_ROLL_MECHANICAL_ZERO_DEG;
     pitch_balance_cascade.posture_value.correct_kp        = 0.4f;       // 姿态修正KP 0.4
     pitch_balance_cascade.posture_value.correct_ki        = 0.015f;       // 姿态修正KI 0.015
-    // 初始化俯仰方向角速度环 PID 参数
-    pitch_balance_cascade.angular_speed_cycle.i_value_max     = 1000;      // 积分项最大值
-    pitch_balance_cascade.angular_speed_cycle.i_value_pro    = 0.3f;       // 积分项系数
-    pitch_balance_cascade.angular_speed_cycle.out_max        = 10000;        // 输出最大值
+    // 初始化横滚方向角速度环 PID 参数
+    pitch_balance_cascade.angular_speed_cycle.i_value_max = BODY_ROLL_RATE_I_VALUE_MAX;
+    pitch_balance_cascade.angular_speed_cycle.i_value_pro = BODY_ROLL_RATE_I_VALUE_PRO;
+    pitch_balance_cascade.angular_speed_cycle.out_max     = BODY_ROLL_STEER_OUTPUT_MAX;
 
-    // 初始化俯仰方向角度环 PID 参数
-    pitch_balance_cascade.angle_cycle.i_value_max        = 300;     // 积分项最大值
-    pitch_balance_cascade.angle_cycle.i_value_pro         = 0.8f;        // 积分项系数
-    pitch_balance_cascade.angle_cycle.out_max            = 300;      // 输出最大值
+    // 初始化横滚方向角度环 PID 参数
+    pitch_balance_cascade.angle_cycle.i_value_max = BODY_ROLL_ANGLE_I_VALUE_MAX;
+    pitch_balance_cascade.angle_cycle.i_value_pro = BODY_ROLL_ANGLE_I_VALUE_PRO;
+    pitch_balance_cascade.angle_cycle.out_max     = BODY_ROLL_RATE_TARGET_MAX;
 
-    // 初始化俯仰方向速度环 PID 参数
+    // 保留未使用的横滚速度环结构，当前闭环不调用
     pitch_balance_cascade.speed_cycle.i_value_max        = 4000;    // 积分项最大值
     pitch_balance_cascade.speed_cycle.i_value_pro         = 0.05f;    // 积分项系数
     pitch_balance_cascade.speed_cycle.out_max            = 1500;       // 输出最大值
     
 
-   // 设置俯仰方向各 PID 环的 P/I/D 参数
-    pitch_balance_cascade.angular_speed_cycle.p    = 0.0f;         // 角速度环 P
-    pitch_balance_cascade.angular_speed_cycle.i    = 0.0f;     // 角速度环 I
-    pitch_balance_cascade.angular_speed_cycle.d    = 0.0f;        // 角速度环 D
+   // 设置横滚方向各 PID 环的 P/I/D 参数
+    pitch_balance_cascade.angular_speed_cycle.p = BODY_ROLL_RATE_KP;
+    pitch_balance_cascade.angular_speed_cycle.i = BODY_ROLL_RATE_KI;
+    pitch_balance_cascade.angular_speed_cycle.d = BODY_ROLL_RATE_KD;
 
-    pitch_balance_cascade.angle_cycle.p    = 0.0f;       // 角度环 P
-    pitch_balance_cascade.angle_cycle.i    = 1.0f;            // 角度环 I
-    pitch_balance_cascade.angle_cycle.d    = 0.0f;       // 角度环 D
+    pitch_balance_cascade.angle_cycle.p = BODY_ROLL_ANGLE_KP;
+    pitch_balance_cascade.angle_cycle.i = BODY_ROLL_ANGLE_KI;
+    pitch_balance_cascade.angle_cycle.d = BODY_ROLL_ANGLE_KD;
 
     pitch_balance_cascade.speed_cycle.p    = 0.0f;       // 速度环 P
     pitch_balance_cascade.speed_cycle.i    = 0.0f;        // 速度环 I
     pitch_balance_cascade.speed_cycle.d    = 0.0f;      // 速度环 D
 
 
-    // 备份俯仰方向的初始参数
+    // 备份横滚方向的初始参数
     memcpy(&pitch_balance_cascade_resave, &pitch_balance_cascade, sizeof(pitch_balance_cascade_resave));
     
 }

@@ -19,10 +19,48 @@
 
 /* 安全保护和 PID 启动 */
 #define BODY_TILT_LIMIT_DEG                    (40.0f)   // 横滚或俯仰超过该角度时停机
+#define BODY_TILT_RECOVER_DEG                  (30.0f)   // 倾倒后回到该角度内才重新允许启动
 #define BODY_PID_RAMP_CYCLES                   (500U)    // PID 从弱到强的渐变周期
 #define BODY_PID_RAMP_INITIAL_SCALE            (0.2f)    // 渐变开始时的 P 参数比例
 #define BODY_PID_RAMP_SCALE_RANGE              (0.8f)    // 渐变过程中增加的 P 参数比例
 #define BODY_JUMP_PID_SCALE                    (0.5f)    // 跳跃时平衡 P 参数比例
+
+/* 前后姿态闭环：保持现有 IMU 安装方向，可在实车符号检查时只修改 SIGN */
+#define BODY_PITCH_TARGET_DEG                  (0.0f)    // 前后姿态目标
+#define BODY_PITCH_MECHANICAL_ZERO_DEG         (-6.0f)   // 车体能够直立时的机械零点
+#define BODY_PITCH_ANGLE_FEEDBACK_SIGN         (-1.0f)   // pit 反馈方向
+#define BODY_PITCH_RATE_FEEDBACK_SIGN          (1.0f)    // gyro_y 反馈方向
+#define BODY_PITCH_ANGLE_KP                    (700.0f)
+#define BODY_PITCH_ANGLE_KI                    (1.0f)
+#define BODY_PITCH_ANGLE_KD                    (50.0f)
+#define BODY_PITCH_ANGLE_I_VALUE_MAX           (1000.0f)
+#define BODY_PITCH_ANGLE_I_VALUE_PRO           (2.0f)
+#define BODY_PITCH_RATE_TARGET_MAX             (10000.0f)
+#define BODY_PITCH_RATE_KP                     (1.1f)
+#define BODY_PITCH_RATE_KI                     (0.0f)
+#define BODY_PITCH_RATE_KD                     (0.0f)
+#define BODY_PITCH_RATE_I_VALUE_MAX            (1000.0f)
+#define BODY_PITCH_RATE_I_VALUE_PRO            (0.1f)
+#define BODY_PITCH_MOTOR_OUTPUT_MAX            (10000.0f)
+
+/* 横滚姿态串级闭环：角度环输出目标角速度，角速度环输出左右腿差分 PWM */
+#define BODY_ROLL_CONTROL_ENABLE               (1)
+#define BODY_ROLL_TARGET_DEG                   (0.0f)
+#define BODY_ROLL_MECHANICAL_ZERO_DEG          (0.0f)
+#define BODY_ROLL_ANGLE_FEEDBACK_SIGN          (1.0f)    // rol 反馈方向，实车若正反馈则改为 -1
+#define BODY_ROLL_RATE_FEEDBACK_SIGN           (1.0f)    // gyro_x 反馈方向，实车若正反馈则改为 -1
+#define BODY_ROLL_ANGLE_KP                     (18.0f)
+#define BODY_ROLL_ANGLE_KI                     (0.0f)
+#define BODY_ROLL_ANGLE_KD                     (0.0f)
+#define BODY_ROLL_ANGLE_I_VALUE_MAX            (100.0f)
+#define BODY_ROLL_ANGLE_I_VALUE_PRO            (0.02f)
+#define BODY_ROLL_RATE_TARGET_MAX              (300.0f)
+#define BODY_ROLL_RATE_KP                      (0.8f)
+#define BODY_ROLL_RATE_KI                      (0.0f)
+#define BODY_ROLL_RATE_KD                      (0.0f)
+#define BODY_ROLL_RATE_I_VALUE_MAX             (100.0f)
+#define BODY_ROLL_RATE_I_VALUE_PRO             (0.02f)
+#define BODY_ROLL_STEER_OUTPUT_MAX             (300.0f)
 
 /* 舵机姿态和速度辅助 */
 #define STEER_PITCH_ATTENUATION_LIMIT_DEG      (30.0f)   // 倾角达到该值时速度辅助衰减到零
@@ -32,9 +70,10 @@
 #define STEER_FILTER_HISTORY_WEIGHT            (8.0f)    // 滤波器历史值权重
 #define STEER_FILTER_INPUT_WEIGHT              (1.0f)    // 滤波器新输入权重
 #define STEER_FILTER_DIVISOR                   (10.0f)   // 滤波器总除数
-#define STEER_BALANCE_ENABLE_DELAY_CYCLES      (2000U)   // 上电后延迟启用左右姿态辅助
-#define STEER_BALANCE_OUTPUT_LIMIT             (300)     // 左右姿态环输出限幅
-#define STEER_BALANCE_OUTPUT_GAIN              (6)       // 左右姿态辅助增益
+#define STEER_ROLL_ENABLE_DELAY_CYCLES         (2000U)   // 上电后延迟启用横滚姿态闭环
+#define STEER_ROLL_OUTPUT_LIMIT                (300)     // 横滚闭环到左右腿差分的限幅
+#define STEER_ROLL_OUTPUT_GAIN                 (1.0f)    // 横滚闭环到舵机 PWM 的增益
+#define STEER_ROLL_OUTPUT_SIGN                 (1.0f)    // 左右腿补偿方向，实车若正反馈则改为 -1
 #define STEER_NORMAL_STEP_LIMIT                (10)      // 正常控制时单周期最大舵机步进
 #define STEER_STOP_RETURN_STEP_LIMIT           (1)       // 停机回中时单周期最大舵机步进
 

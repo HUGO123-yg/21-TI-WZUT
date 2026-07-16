@@ -3,31 +3,54 @@
 
 float target_speed = BODY_TARGET_SPEED_DEFAULT;
 int jump_flag=0;
+int jump_time=0;
 int run_state = BODY_RUN_STATE_DEFAULT;
+
+static void body_roll_pid_reset(void)
+{
+    pitch_balance_cascade.angle_cycle.i_value = 0;
+    pitch_balance_cascade.angle_cycle.p_value_last = 0;
+    pitch_balance_cascade.angle_cycle.out = 0;
+    pitch_balance_cascade.angular_speed_cycle.i_value = 0;
+    pitch_balance_cascade.angular_speed_cycle.p_value_last = 0;
+    pitch_balance_cascade.angular_speed_cycle.out = 0;
+}
 
 //--------------------------------------------------------------------------------
 // 函数简介    计算并更新车辆状态标志
 // 返回参数    void
 // 使用示例    car_state_calculate();
-// 备注信息    根据横滚角、转向电流、实际距离等参数切换车辆悬挂状态和运行状态，同时处理 PID 参数的渐变
+// 备注信息    根据横滚角和俯仰角处理倾倒保护、恢复延时以及 PID 参数渐变
 //--------------------------------------------------------------------------------
 void car_state_calculate(void)
 {
-    if(func_abs(roll_balance_cascade.posture_value.rol) > BODY_TILT_LIMIT_DEG || func_abs(roll_balance_cascade.posture_value.pit) > BODY_TILT_LIMIT_DEG)//横滚角和俯仰角超过保护阈值时，小车关机
+    float roll_angle = BODY_ROLL_ANGLE_FEEDBACK_SIGN * roll_balance_cascade.posture_value.rol;
+    float pitch_angle = BODY_PITCH_ANGLE_FEEDBACK_SIGN * roll_balance_cascade.posture_value.pit;
+
+    if(func_abs(roll_angle) > BODY_TILT_LIMIT_DEG || func_abs(pitch_angle) > BODY_TILT_LIMIT_DEG)//横滚角和俯仰角超过保护阈值时，小车关机
     {
         jump_flag = 0;
+        jump_time = 0;
         run_state = 0;                          // 停止运行
+        sys_times = 0;
         
         roll_balance_cascade.angular_speed_cycle.i_value = 0; // 重置角速度环 PID 积分值
-        pitch_balance_cascade.angle_cycle.i_value = 0;
+        roll_balance_cascade.angular_speed_cycle.out = 0;
+        roll_balance_cascade.angle_cycle.i_value = 0;
+        roll_balance_cascade.angle_cycle.out = 0;
+        body_roll_pid_reset();
     }
-    else
+    else if(run_state == 0
+            && func_abs(roll_angle) < BODY_TILT_RECOVER_DEG
+            && func_abs(pitch_angle) < BODY_TILT_RECOVER_DEG)
     {
-        if(run_state == 0)
-        {
-            sys_times = 0;
-        }
+        sys_times = 0;
         run_state = 1;
+    }
+
+    if(run_state == 0)
+    {
+        return;
     }
 
     if(sys_times < BODY_PID_RAMP_CYCLES)        // 启动阶段逐步恢复 PID 参数
@@ -42,6 +65,7 @@ void car_state_calculate(void)
                + (float)sys_times / (float)BODY_PID_RAMP_CYCLES * BODY_PID_RAMP_SCALE_RANGE);
 
         roll_balance_cascade.angle_cycle.i_value = 0; // 重置角度环积分值
+        body_roll_pid_reset();
     }
     else                                        // 渐变结束后使用原始 PID 参数
     {
@@ -55,11 +79,10 @@ void car_state_calculate(void)
         roll_balance_cascade.speed_cycle.p = roll_balance_cascade_resave.speed_cycle.p * BODY_JUMP_PID_SCALE;
 
         roll_balance_cascade.angle_cycle.i_value = 0;     // 重置角速度环 PID 积分值
-        pitch_balance_cascade.angle_cycle.i_value = 0;
+        body_roll_pid_reset();
     }
 }
 
-int jump_time=0;
 //--------------------------------------------------------------------------------
 // 函数简介    车辆舵机控制
 // 返回参数    void
@@ -80,10 +103,12 @@ void car_steer_control(void)
     
     float steer_balance_angle = 0;
     
-    //倾斜的越低越降低速度环输出.加速的时候会倾斜，越倾斜越收腿
+    // 前后倾斜越大，越降低速度环到舵机的辅助量
     float pitch_offset = (STEER_PITCH_ATTENUATION_LIMIT_DEG
         - func_limit_ab(
-            func_abs(roll_balance_cascade.posture_value.rol + roll_balance_cascade.posture_value.mechanical_zero),
+            func_abs(
+                (BODY_PITCH_TARGET_DEG - roll_balance_cascade.posture_value.mechanical_zero)
+                - BODY_PITCH_ANGLE_FEEDBACK_SIGN * roll_balance_cascade.posture_value.pit),
             0.0f,
             STEER_PITCH_ATTENUATION_LIMIT_DEG))
         / STEER_PITCH_ATTENUATION_LIMIT_DEG;
@@ -108,17 +133,19 @@ void car_steer_control(void)
 
     if(jump_flag == 0)
     {
-        if(sys_times < STEER_BALANCE_ENABLE_DELAY_CYCLES)
+        if(sys_times < STEER_ROLL_ENABLE_DELAY_CYCLES)
         {
             steer_balance_angle = 0;
-            pitch_balance_cascade.angle_cycle.i_value = 0;
+            body_roll_pid_reset();
         }
         else
         {
             steer_balance_angle = func_limit_ab(
-                pitch_balance_cascade.angle_cycle.out,
-                -STEER_BALANCE_OUTPUT_LIMIT,
-                STEER_BALANCE_OUTPUT_LIMIT) * STEER_BALANCE_OUTPUT_GAIN;
+                pitch_balance_cascade.angular_speed_cycle.out,
+                -STEER_ROLL_OUTPUT_LIMIT,
+                STEER_ROLL_OUTPUT_LIMIT)
+                * STEER_ROLL_OUTPUT_GAIN
+                * STEER_ROLL_OUTPUT_SIGN;
         }
         steer_balance_angle_count = steer_balance_angle;
     }
@@ -128,10 +155,12 @@ void car_steer_control(void)
     steer_location_offset[2] = (steer_3.now_location - steer_3.center_num) * steer_3.steer_dir;
     steer_location_offset[3] = (steer_4.now_location - steer_4.center_num) * steer_4.steer_dir;
 
-    steer_target_offset[0] = (int16)( steer_output_duty_filter - (steer_balance_angle_count > 0 ? 0 : steer_balance_angle_count));
-    steer_target_offset[1] = (int16)( steer_output_duty_filter + (steer_balance_angle_count < 0 ? 0 : steer_balance_angle_count));
-    steer_target_offset[2] = (int16)(-steer_output_duty_filter - (steer_balance_angle_count > 0 ? 0 : steer_balance_angle_count));
-    steer_target_offset[3] = (int16)(-steer_output_duty_filter + (steer_balance_angle_count < 0 ? 0 : steer_balance_angle_count));
+    // 左腿为 steer_1 + steer_3，右腿为 steer_2 + steer_4。
+    // 公共量控制前后摆动，横滚量以等大反向方式调节左右腿，避免改变平均腿高。
+    steer_target_offset[0] = (int16)( steer_output_duty_filter - steer_balance_angle_count);
+    steer_target_offset[1] = (int16)( steer_output_duty_filter + steer_balance_angle_count);
+    steer_target_offset[2] = (int16)(-steer_output_duty_filter - steer_balance_angle_count);
+    steer_target_offset[3] = (int16)(-steer_output_duty_filter + steer_balance_angle_count);
 
     if(run_state == 1)
     {
@@ -260,8 +289,16 @@ void pit_call_back(void)
     imu660rb_get_gyro();                             // 获取 IMU660RA 陀螺仪数据
     imu660rb_get_acc();                              // 获取 IMU660RA 加速度计数据
     quaternion_module_calculate(&roll_balance_cascade); // 计算四元数，更新姿态数据
-   
-    
+
+    car_state_calculate();
+
+    if(run_state == 0 || sys_times <= BODY_CONTROL_STARTUP_DELAY_CYCLES)
+    {
+        car_steer_control();
+        CYT2_D_motor_ctrl(0, 0);
+        return;
+    }
+
     if(sys_times > BODY_CONTROL_STARTUP_DELAY_CYCLES)
     {
           if(sys_times % BODY_ANGLE_LOOP_DIVIDER == 0)     // 角度环降频执行
@@ -273,16 +310,40 @@ void pit_call_back(void)
 
             
             
-              // 角度环 PID 控制，目标值为速度环输出减去机械零点
-              //前后平衡控制
-              pid_control(&roll_balance_cascade.angle_cycle, 0.0f - roll_balance_cascade.posture_value.mechanical_zero, -roll_balance_cascade.posture_value.pit);
+              // 前后姿态角度环：输出目标俯仰角速度
+              pid_control(
+                  &roll_balance_cascade.angle_cycle,
+                  BODY_PITCH_TARGET_DEG - roll_balance_cascade.posture_value.mechanical_zero,
+                  BODY_PITCH_ANGLE_FEEDBACK_SIGN * roll_balance_cascade.posture_value.pit);
               
-              // 角度环 PID 控制，目标值为速度环输出减去机械零点
-                //左右轮腿控制
-      //        pid_control(&pitch_balance_cascade.angle_cycle,0.0f - pitch_balance_cascade.posture_value.mechanical_zero, roll_balance_cascade.posture_value.pit);
+              // 横滚角度环：输出目标横滚角速度
+              if(BODY_ROLL_CONTROL_ENABLE)
+              {
+                  pid_control(
+                      &pitch_balance_cascade.angle_cycle,
+                      BODY_ROLL_TARGET_DEG - pitch_balance_cascade.posture_value.mechanical_zero,
+                      BODY_ROLL_ANGLE_FEEDBACK_SIGN * roll_balance_cascade.posture_value.rol);
+              }
+              else
+              {
+                  body_roll_pid_reset();
+              }
              }
-              // 角速度环 PID 控制，目标值为角度环输出，当前值为 X 轴陀螺仪数据
-              pid_control(&roll_balance_cascade.angular_speed_cycle, roll_balance_cascade.angle_cycle.out, imu660rb_gyro_y);
+
+              // 前后角速度环
+              pid_control(
+                  &roll_balance_cascade.angular_speed_cycle,
+                  roll_balance_cascade.angle_cycle.out,
+                  BODY_PITCH_RATE_FEEDBACK_SIGN * imu660rb_gyro_y);
+
+              // 横滚角速度环：输出左右腿差分 PWM
+              if(BODY_ROLL_CONTROL_ENABLE)
+              {
+                  pid_control(
+                      &pitch_balance_cascade.angular_speed_cycle,
+                      pitch_balance_cascade.angle_cycle.out,
+                      BODY_ROLL_RATE_FEEDBACK_SIGN * imu660rb_gyro_x);
+              }
           
 //              CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out);
       //        
@@ -308,7 +369,7 @@ void pit_call_back(void)
           
           }
 //          
-          if(STOP_FALG==1)
+          if(STOP_FALG==1 && run_state==1)
           {
 //             CYT2_D_motor_ctrl(-(int16)roll_balance_cascade.angular_speed_cycle.out+track_cascade.track_cycle.out,-(int16)roll_balance_cascade.angular_speed_cycle.out-track_cascade.track_cycle.out);
              CYT2_D_motor_ctrl(
