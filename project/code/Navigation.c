@@ -44,10 +44,6 @@ static uint8 navigation_config_is_valid(void)
 {
     if ((NAVIGATION_WHEEL_YAW_RATE_WEIGHT < 0.0f)
         || (NAVIGATION_WHEEL_YAW_RATE_WEIGHT > 1.0f)
-        || (NAVIGATION_STATIONARY_SPEED_M_S < 0.0f)
-        || (NAVIGATION_STATIONARY_GYRO_DPS < 0.0f)
-        || (NAVIGATION_GYRO_BIAS_LEARNING_RATE < 0.0f)
-        || (NAVIGATION_GYRO_BIAS_LEARNING_RATE > 1.0f)
         || (NAVIGATION_HEADING_KP < 0.0f)
         || (NAVIGATION_MAX_YAW_RATE_RAD_S <= 0.0f)
         || (NAV_FLASH_SAMPLE_DISTANCE_M <= 0.0f))
@@ -217,7 +213,6 @@ navigation_status_t navigation_update(const imu_data_t *imu,
     float previous_yaw_rad;
     float forward_distance_delta_m = 0.0f;
     float route_yaw_deg;
-    uint8 stationary;
 
     if (!navigation_initialized)
     {
@@ -251,22 +246,9 @@ navigation_status_t navigation_update(const imu_data_t *imu,
     }
 
     navigation_state.imu_yaw_rate_rad_s
-        = imu->gyro_dps[2] * NAVIGATION_DEG_TO_RAD;
-    stationary = (uint8)(wheel_feedback_valid
-        && (fabsf(left_speed_m_s) <= NAVIGATION_STATIONARY_SPEED_M_S)
-        && (fabsf(right_speed_m_s) <= NAVIGATION_STATIONARY_SPEED_M_S)
-        && (fabsf(imu->gyro_dps[2]) <= NAVIGATION_STATIONARY_GYRO_DPS)
-        && (imu->acc_norm_g >= IMU_STARTUP_CALIBRATION_MIN_G)
-        && (imu->acc_norm_g <= IMU_STARTUP_CALIBRATION_MAX_G));
-    if (stationary)
-    {
-        navigation_state.gyro_bias_z_rad_s +=
-            NAVIGATION_GYRO_BIAS_LEARNING_RATE
-            * (navigation_state.imu_yaw_rate_rad_s
-               - navigation_state.gyro_bias_z_rad_s);
-    }
-    navigation_state.imu_yaw_rate_rad_s -=
-        navigation_state.gyro_bias_z_rad_s;
+        = imu->attitude_rate_dps[2] * NAVIGATION_DEG_TO_RAD;
+    navigation_state.gyro_bias_z_rad_s
+        = imu->online_gyro_bias_dps[2] * NAVIGATION_DEG_TO_RAD;
 
     navigation_state.wheel_yaw_rate_rad_s = 0.0f;
     navigation_state.fused_yaw_rate_rad_s

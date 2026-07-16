@@ -186,7 +186,7 @@ rotation_ctrl_status_t rotation_ctrl_update(
     rotation_shape_zero_speed(shaped);
     if ((0 == imu)
         || !rotation_float_is_finite(imu->yaw_deg)
-        || !rotation_float_is_finite(imu->gyro_dps[2]))
+        || !rotation_float_is_finite(imu->attitude_rate_dps[2]))
     {
         rotation_state.status = ROTATION_CTRL_STATUS_INVALID_ARGUMENT;
         rotation_enter_holding(ROTATION_RESULT_FAULT);
@@ -195,7 +195,7 @@ rotation_ctrl_status_t rotation_ctrl_update(
     }
 
     rotation_state.measured_yaw_rate_rad_s
-        = imu->gyro_dps[2] * ROTATION_DEG_TO_RAD;
+        = imu->attitude_rate_dps[2] * ROTATION_DEG_TO_RAD;
     if (ROTATION_PHASE_HOLDING == rotation_state.phase)
     {
         return rotation_state.status;

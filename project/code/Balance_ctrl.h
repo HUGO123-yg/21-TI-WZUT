@@ -33,13 +33,24 @@ typedef struct
     float measured_position_m;
     float position_reference_m;
     float measured_speed_m_s;
+    float measured_pitch_rad;
+    float measured_pitch_rate_rad_s;
+    float measured_yaw_rate_rad_s;
     float pitch_reference_rad;
     float pitch_rate_reference_rad_s;
     float balance_command;
+    // Live mixer diagnostics: balance keeps priority and yaw receives only the
+    // wheel command range left after the common balance output is applied.
+    float wheel_common_command;
+    float yaw_rate_error_rad_s;
+    float yaw_command_requested;
     float yaw_command;
+    float yaw_command_limit;
+    float yaw_integrator;
     int16 left_wheel_command;
     int16 right_wheel_command;
     uint8 leg_speed_control_active;
+    uint8 yaw_command_limited;
 } balance_state_t;
 
 void balance_ctrl_init(void);

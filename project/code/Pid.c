@@ -53,6 +53,7 @@ float pid_update(pid_controller_t *pid,
     float proportional;
     float derivative;
     float candidate_integrator;
+    float integrator_delta;
     float candidate_output;
     uint8 output_saturated_high;
     uint8 output_saturated_low;
@@ -68,15 +69,17 @@ float pid_update(pid_controller_t *pid,
                                      + pid->ki * error * dt_s,
                                      pid->integrator_min,
                                      pid->integrator_max);
+    integrator_delta = candidate_integrator - pid->integrator;
     candidate_output = proportional + candidate_integrator + derivative;
     output_saturated_high = (uint8)(candidate_output > pid->output_max);
     output_saturated_low = (uint8)(candidate_output < pid->output_min);
 
-    // Conditional integration prevents the integral term from driving farther
-    // into saturation while still allowing it to unwind in the opposite direction.
+    // Use the integral increment rather than the error sign: attitude loops may
+    // intentionally use negative gains, so error sign alone does not reveal
+    // whether integration drives farther into saturation or unwinds it.
     if ((!output_saturated_high && !output_saturated_low)
-        || (output_saturated_high && (error < 0.0f))
-        || (output_saturated_low && (error > 0.0f)))
+        || (output_saturated_high && (integrator_delta < 0.0f))
+        || (output_saturated_low && (integrator_delta > 0.0f)))
     {
         pid->integrator = candidate_integrator;
     }

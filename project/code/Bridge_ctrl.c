@@ -278,7 +278,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
     if ((0 == imu)
         || !bridge_float_is_finite(traveled_distance_m)
         || !bridge_float_is_finite(imu->roll_deg)
-        || !bridge_float_is_finite(imu->gyro_dps[0]))
+        || !bridge_float_is_finite(imu->attitude_rate_dps[0]))
     {
         bridge_state.status = BRIDGE_CTRL_STATUS_INVALID_ARGUMENT;
         bridge_state.result = BRIDGE_RESULT_FAULT;
@@ -286,7 +286,7 @@ bridge_ctrl_status_t bridge_ctrl_update(const imu_data_t *imu,
     }
 
     roll_rad = imu->roll_deg * BRIDGE_DEG_TO_RAD;
-    roll_rate_rad_s = imu->gyro_dps[0] * BRIDGE_DEG_TO_RAD;
+    roll_rate_rad_s = imu->attitude_rate_dps[0] * BRIDGE_DEG_TO_RAD;
     current_roll_sign = (roll_rad >= 0.0f) ? 1 : -1;
 
     switch (bridge_state.phase)

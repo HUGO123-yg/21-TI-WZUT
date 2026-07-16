@@ -6,7 +6,9 @@
 
 #include "syslib/cy_syslib.h"
 #include "Imu.h"
+#include "Mission_perception.h"
 #include "Navigation.h"
+#include "Perception_fusion.h"
 #include "Wheel_driver.h"
 #include "config.h"
 
@@ -19,12 +21,19 @@ static volatile uint32 requested_drive_command_sequence;
 static uint8 restore_balance_after_jump;
 
 #define CONTROL_DEG_TO_RAD (0.017453292519943295f)
+#define CONTROL_PI         (3.14159265358979323846f)
 
 static uint8 control_system_float_is_finite(float value)
 {
     return (uint8)((value == value)
                    && (value <= FLT_MAX)
                    && (value >= -FLT_MAX));
+}
+
+static uint8 control_system_rotation_actuation_is_ready(void)
+{
+    return (uint8)((fabsf(BALANCE_YAW_RATE_KP) > 0.000001f)
+                   || (fabsf(BALANCE_YAW_RATE_KI) > 0.000001f));
 }
 
 static uint8 control_system_drive_command_is_valid(
@@ -43,6 +52,30 @@ static uint8 control_system_drive_command_is_valid(
                        command->target_leg_x_offset_m)
                    && control_system_float_is_finite(
                        command->target_leg_z_offset_m));
+}
+
+static uint8 control_system_wheels_are_stationary(
+    const wheel_feedback_t *wheel,
+    uint8 wheel_feedback_valid)
+{
+    float wheel_circumference_m;
+    float left_speed_m_s;
+    float right_speed_m_s;
+
+    if ((0 == wheel) || !wheel_feedback_valid)
+    {
+        return 0U;
+    }
+
+    wheel_circumference_m = CONTROL_PI * WHEEL_DIAMETER_M;
+    left_speed_m_s = (float)wheel->left_rpm
+                     * wheel_circumference_m / 60.0f;
+    right_speed_m_s = (float)wheel->right_rpm
+                      * wheel_circumference_m / 60.0f;
+    return (uint8)((fabsf(left_speed_m_s)
+                    <= IMU_RUNTIME_BIAS_MAX_WHEEL_SPEED_M_S)
+                   && (fabsf(right_speed_m_s)
+                       <= IMU_RUNTIME_BIAS_MAX_WHEEL_SPEED_M_S));
 }
 
 static void control_system_store_drive_command(
@@ -211,6 +244,40 @@ static void control_system_sync_route_state(void)
     control_state.route_action_running = route->action_running;
 }
 
+static uint8 control_system_mine_action_is_ready(
+    const route_plan_state_t *route)
+{
+    const mission_perception_state_t *mission;
+
+    if (!MISSION_PERCEPTION_MINE_ACTION_ENABLE
+        || (0 == route) || (2U != route->route_id))
+    {
+        return 0U;
+    }
+    mission = mission_perception_get_state();
+    return (uint8)((2U == mission->route_id)
+        && (MISSION_PERCEPTION_TASK_MINEFIELD == mission->task)
+        && mission->navigation_window_active
+        && mission->visual_fresh
+        && mission->visual_calibrated
+        && mission->mine_center_valid
+        && (fabsf(mission->mine_center_error_norm)
+            <= MISSION_PERCEPTION_MINE_CENTER_TOLERANCE_NORM)
+        && !mission->mine_boundary_warning
+        && (!MISSION_PERCEPTION_MINE_GUARD_REQUIRED
+            || mission->mine_boundary_guard_valid));
+}
+
+static uint8 control_system_route_action_requires_stationary(
+    route_action_t action)
+{
+    return (uint8)((ROUTE_ACTION_STAIR_DESCENT_JUMP == action)
+        || (ROUTE_ACTION_ROTATE_CW == action)
+        || (ROUTE_ACTION_ROTATE_CCW == action)
+        || (ROUTE_ACTION_MINE_ROTATE_CW == action)
+        || (ROUTE_ACTION_MINE_ROTATE_CCW == action));
+}
+
 static void control_system_service_route_action(void)
 {
     const route_plan_state_t *route;
@@ -218,6 +285,7 @@ static void control_system_service_route_action(void)
     const bumpy_ctrl_state_t *bumpy;
     const rotation_ctrl_state_t *rotation;
     const jump_state_t *jump;
+    const mission_perception_state_t *mission;
     uint8 completed;
     uint8 success;
 
@@ -231,7 +299,7 @@ static void control_system_service_route_action(void)
     success = 0U;
     switch (route->current_action)
     {
-        case ROUTE_ACTION_JUMP:
+        case ROUTE_ACTION_STAIR_DESCENT_JUMP:
             jump = jump_ctrl_get_state();
             if (!jump->active)
             {
@@ -242,6 +310,29 @@ static void control_system_service_route_action(void)
 
         case ROUTE_ACTION_ROTATE_CW:
         case ROUTE_ACTION_ROTATE_CCW:
+        case ROUTE_ACTION_MINE_ROTATE_CW:
+        case ROUTE_ACTION_MINE_ROTATE_CCW:
+            if ((ROUTE_ACTION_MINE_ROTATE_CW == route->current_action)
+                || (ROUTE_ACTION_MINE_ROTATE_CCW
+                    == route->current_action))
+            {
+                mission = mission_perception_get_state();
+                if ((2U != mission->route_id)
+                    || (MISSION_PERCEPTION_TASK_MINEFIELD
+                        != mission->task)
+                    || !mission->navigation_window_active
+                    || !mission->visual_fresh
+                    || !mission->visual_calibrated
+                    || mission->mine_boundary_warning
+                    || (MISSION_PERCEPTION_MINE_GUARD_REQUIRED
+                        && !mission->mine_boundary_guard_valid))
+                {
+                    completed = 1U;
+                    control_state.mine_guard_abort_count++;
+                    (void)control_system_abort_rotation();
+                    break;
+                }
+            }
             rotation = rotation_ctrl_get_state();
             if (ROTATION_RESULT_COMPLETED == rotation->result)
             {
@@ -322,10 +413,12 @@ static void control_system_service_route_action(void)
 
 static void control_system_dispatch_route_action(void)
 {
+    wheel_feedback_t wheel_feedback;
     route_action_t action;
     rotation_dir_t direction;
     float parameter;
     uint8 accepted;
+    uint8 wheel_feedback_valid;
 
     if (!route_plan_get_pending_action(&action, &parameter))
     {
@@ -341,12 +434,29 @@ static void control_system_dispatch_route_action(void)
     {
         return;
     }
+    if (control_system_route_action_requires_stationary(action))
+    {
+        wheel_driver_get_feedback(&wheel_feedback);
+        wheel_feedback_valid = (uint8)(control_state.wheel_feedback_ready
+            && (control_state.wheel_feedback_age_ms
+                <= CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS));
+        if (!control_system_wheels_are_stationary(&wheel_feedback,
+                                                   wheel_feedback_valid))
+        {
+            // Keep the action pending while the zero-speed route point slows
+            // the chassis. Waiting for a physical stop is not a rejection.
+            return;
+        }
+    }
 
     accepted = 0U;
     switch (action)
     {
-        case ROUTE_ACTION_JUMP:
-            accepted = control_system_start_jump();
+        case ROUTE_ACTION_STAIR_DESCENT_JUMP:
+            if (3U == route_plan_get_state()->route_id)
+            {
+                accepted = control_system_start_jump();
+            }
             break;
 
         case ROUTE_ACTION_ROTATE_CW:
@@ -355,6 +465,26 @@ static void control_system_dispatch_route_action(void)
                 ? ROTATION_DIR_CW
                 : ROTATION_DIR_CCW;
             accepted = control_system_start_rotation(direction, parameter);
+            break;
+
+        case ROUTE_ACTION_MINE_ROTATE_CW:
+        case ROUTE_ACTION_MINE_ROTATE_CCW:
+            if (control_system_mine_action_is_ready(route_plan_get_state()))
+            {
+                direction = (ROUTE_ACTION_MINE_ROTATE_CW == action)
+                    ? ROTATION_DIR_CW
+                    : ROTATION_DIR_CCW;
+                if (MISSION_PERCEPTION_STATUS_OK
+                    == mission_perception_configure_mine_rotation(
+                        (ROTATION_DIR_CW == direction)
+                            ? MISSION_PERCEPTION_ROTATION_CW
+                            : MISSION_PERCEPTION_ROTATION_CCW,
+                        parameter))
+                {
+                    accepted = control_system_start_rotation(direction,
+                                                             parameter);
+                }
+            }
             break;
 
         case ROUTE_ACTION_BRIDGE_LEFT:
@@ -432,6 +562,7 @@ static void control_system_stop_navigation_action(void)
         navigation_stop_replay();
     }
     route_plan_abort();
+    mission_perception_stop();
     control_system_sync_route_state();
 }
 
@@ -511,6 +642,8 @@ control_status_t control_system_init(void)
     imu_status_t imu_status;
     leg_ctrl_status_t leg_status;
     navigation_status_t navigation_status;
+    perception_fusion_status_t perception_status;
+    mission_perception_status_t mission_perception_status;
     bridge_ctrl_status_t bridge_status;
     bumpy_ctrl_status_t bumpy_status;
     rotation_ctrl_status_t rotation_status;
@@ -531,6 +664,8 @@ control_status_t control_system_init(void)
     requested_drive_command.target_leg_z_offset_m = 0.0f;
     balance_ctrl_init();
     control_state.balance_config_valid = balance_ctrl_config_is_valid();
+    control_state.rotation_actuation_ready
+        = control_system_rotation_actuation_is_ready();
     wheel_driver_init();
     control_state.wheel_config_valid = wheel_driver_config_is_valid();
     leg_status = leg_ctrl_init();
@@ -583,6 +718,24 @@ control_status_t control_system_init(void)
         control_state.navigation_error_count++;
     }
 
+    perception_status = perception_fusion_init();
+    control_state.last_perception_status = (uint32)perception_status;
+    if ((PERCEPTION_FUSION_STATUS_INVALID_CONFIG == perception_status)
+        || (PERCEPTION_FUSION_STATUS_INVALID_ARGUMENT == perception_status))
+    {
+        control_state.perception_error_count++;
+    }
+    mission_perception_status = mission_perception_init();
+    control_state.last_mission_perception_status
+        = (uint32)mission_perception_status;
+    if ((MISSION_PERCEPTION_STATUS_INVALID_CONFIG
+         == mission_perception_status)
+        || (MISSION_PERCEPTION_STATUS_INVALID_ARGUMENT
+            == mission_perception_status))
+    {
+        control_state.mission_perception_error_count++;
+    }
+
     if (leg_init_failed)
     {
         control_system_latch_fault(CONTROL_STATUS_LEG_ERROR,
@@ -627,6 +780,7 @@ void control_system_tick_1ms(void)
     const balance_command_t *command;
     const navigation_state_t *navigation;
     const route_plan_state_t *route;
+    const mission_perception_state_t *mission;
     const bridge_ctrl_state_t *bridge;
     control_drive_command_t drive_command;
     balance_command_t active_command;
@@ -636,11 +790,14 @@ void control_system_tick_1ms(void)
     imu_status_t imu_status;
     leg_ctrl_status_t leg_status;
     navigation_status_t navigation_status;
+    perception_fusion_status_t perception_status;
+    mission_perception_status_t mission_perception_status;
     route_plan_status_t route_status;
     bridge_ctrl_status_t bridge_status;
     bumpy_ctrl_status_t bumpy_status;
     uint8 run_speed_loop;
     uint8 wheel_feedback_valid;
+    uint8 wheels_stationary;
     uint32 drive_command_sequence;
 
     control_state.scheduler_tick_ms++;
@@ -663,7 +820,30 @@ void control_system_tick_1ms(void)
     fast_divider = 0U;
     fast_step_count++;
 
-    imu_status = imu_update();
+    wheel_driver_get_feedback(&wheel_feedback);
+    if (wheel_feedback.valid_frame_count != last_wheel_frame_count)
+    {
+        last_wheel_frame_count = wheel_feedback.valid_frame_count;
+        control_state.wheel_feedback_age_ms = 0U;
+        control_state.wheel_feedback_ready = 1U;
+    }
+    else
+    {
+        control_state.wheel_feedback_age_ms +=
+            (uint32)(CONTROL_FAST_PERIOD_S * 1000.0f + 0.5f);
+    }
+    if ((fast_step_count % CONTROL_WHEEL_REQUEST_INTERVAL_STEPS) == 0U)
+    {
+        wheel_driver_request_speed();
+    }
+
+    wheel_feedback_valid = (uint8)(control_state.wheel_feedback_ready
+        && (control_state.wheel_feedback_age_ms
+            <= CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS));
+    wheels_stationary = control_system_wheels_are_stationary(
+        &wheel_feedback,
+        wheel_feedback_valid);
+    imu_status = imu_update(wheels_stationary);
     control_state.last_imu_status = (uint32)imu_status;
     if (IMU_STATUS_OK != imu_status)
     {
@@ -678,24 +858,6 @@ void control_system_tick_1ms(void)
             (uint32)CONTROL_FAULT_IMU
             | (uint32)CONTROL_FAULT_BALANCE);
         return;
-    }
-
-    wheel_driver_get_feedback(&wheel_feedback);
-    if (wheel_feedback.valid_frame_count != last_wheel_frame_count)
-    {
-        last_wheel_frame_count = wheel_feedback.valid_frame_count;
-        control_state.wheel_feedback_age_ms = 0U;
-        control_state.wheel_feedback_ready = 1U;
-    }
-    else
-    {
-        control_state.wheel_feedback_age_ms +=
-            (uint32)(CONTROL_FAST_PERIOD_S * 1000.0f + 0.5f);
-    }
-
-    if ((fast_step_count % CONTROL_WHEEL_REQUEST_INTERVAL_STEPS) == 0U)
-    {
-        wheel_driver_request_speed();
     }
 
     (void)control_system_try_start_stand();
@@ -716,9 +878,6 @@ void control_system_tick_1ms(void)
     }
 
     imu = imu_get_data();
-    wheel_feedback_valid = (uint8)(control_state.wheel_feedback_ready
-        && (control_state.wheel_feedback_age_ms
-            <= CONTROL_WHEEL_FEEDBACK_TIMEOUT_MS));
     navigation_status = navigation_update(imu,
                                           &wheel_feedback,
                                           wheel_feedback_valid,
@@ -730,6 +889,33 @@ void control_system_tick_1ms(void)
     }
 
     navigation = navigation_get_state();
+    perception_status = perception_fusion_service(
+        imu,
+        navigation,
+        control_state.scheduler_tick_ms);
+    if (((PERCEPTION_FUSION_STATUS_INVALID_CONFIG == perception_status)
+         || (PERCEPTION_FUSION_STATUS_INVALID_ARGUMENT == perception_status))
+        && (control_state.last_perception_status != (uint32)perception_status))
+    {
+        control_state.perception_error_count++;
+    }
+    control_state.last_perception_status = (uint32)perception_status;
+    mission_perception_status = mission_perception_service(
+        navigation,
+        control_state.scheduler_tick_ms);
+    if (((MISSION_PERCEPTION_STATUS_INVALID_CONFIG
+          == mission_perception_status)
+         || (MISSION_PERCEPTION_STATUS_INVALID_ARGUMENT
+             == mission_perception_status)
+         || (MISSION_PERCEPTION_STATUS_NOT_INITIALIZED
+             == mission_perception_status))
+        && (control_state.last_mission_perception_status
+            != (uint32)mission_perception_status))
+    {
+        control_state.mission_perception_error_count++;
+    }
+    control_state.last_mission_perception_status
+        = (uint32)mission_perception_status;
     control_system_service_route_action();
     route = route_plan_get_state();
     if (route->active
@@ -799,6 +985,29 @@ void control_system_tick_1ms(void)
     {
         active_command.target_speed_m_s = 0.0f;
         active_command.target_yaw_rate_rad_s = 0.0f;
+    }
+    if (route->action_pending
+        && control_system_route_action_requires_stationary(
+            route->current_action))
+    {
+        // Stop-required actions own the deceleration request even when normal
+        // route speed replay is still in observation-only mode.
+        active_command.target_speed_m_s = 0.0f;
+        active_command.target_yaw_rate_rad_s = 0.0f;
+    }
+    control_state.mission_guidance_active = 0U;
+    mission = mission_perception_get_state();
+    if (MISSION_PERCEPTION_APPLY_GUIDANCE_ENABLE
+        && route->active
+        && !route->action_pending
+        && !route->action_running
+        && (mission->route_id == route->route_id)
+        && mission->advisory_valid)
+    {
+        active_command.target_yaw_rate_rad_s
+            = mission->suggested_yaw_rate_rad_s;
+        control_state.mission_guidance_active = 1U;
+        control_state.mission_guidance_apply_count++;
     }
     run_speed_loop = (uint8)((fast_step_count
                               % CONTROL_SPEED_INTERVAL_STEPS) == 0U);
@@ -953,7 +1162,8 @@ void control_system_tick_1ms(void)
             {
                 leg_status = leg_ctrl_update(
                     imu->roll_deg * 0.017453292519943295f,
-                    imu->gyro_dps[0] * 0.017453292519943295f);
+                    imu->attitude_rate_dps[0]
+                    * 0.017453292519943295f);
                 control_state.last_leg_status = (uint32)leg_status;
             }
             if (LEG_CTRL_STATUS_OK != leg_status)
@@ -1293,6 +1503,7 @@ uint8 control_system_start_rotation(rotation_dir_t direction, float turns)
     rotation_ctrl_status_t status;
 
     if ((CONTROL_STATUS_OK != control_state.status)
+        || !control_state.rotation_actuation_ready
         || jump_ctrl_is_active()
         || rotation_ctrl_is_active()
         || bridge_ctrl_is_active()
@@ -1350,7 +1561,9 @@ uint8 control_system_start_route(uint8 route_id)
 {
     const navigation_state_t *navigation;
     navigation_status_t navigation_status;
+    mission_perception_status_t mission_status;
     route_plan_status_t route_status;
+    uint8 route_context_ready;
     uint32 interrupt_state;
 
     navigation = navigation_get_state();
@@ -1376,11 +1589,36 @@ uint8 control_system_start_route(uint8 route_id)
 
     interrupt_state = Cy_SysLib_EnterCriticalSection();
     route_status = route_plan_start(route_id);
+    mission_status = mission_perception_start_route(route_id);
+    route_context_ready = (uint8)(
+        ((ROUTE_PLAN_STATUS_OK == route_status)
+         || (ROUTE_PLAN_STATUS_DISABLED == route_status))
+        && ((MISSION_PERCEPTION_STATUS_OK == mission_status)
+            || (MISSION_PERCEPTION_STATUS_DISABLED == mission_status)));
+    if (!route_context_ready)
+    {
+        route_plan_abort();
+        mission_perception_stop();
+    }
     Cy_SysLib_ExitCriticalSection(interrupt_state);
     control_system_sync_route_state();
-    if ((ROUTE_PLAN_STATUS_OK != route_status)
-        && (ROUTE_PLAN_STATUS_DISABLED != route_status))
+    if (!route_context_ready)
     {
+        control_state.last_route_status = (uint32)route_status;
+    }
+    control_state.last_mission_perception_status = (uint32)mission_status;
+    if (!route_context_ready)
+    {
+        if ((ROUTE_PLAN_STATUS_OK != route_status)
+            && (ROUTE_PLAN_STATUS_DISABLED != route_status))
+        {
+            control_state.route_error_count++;
+        }
+        if ((MISSION_PERCEPTION_STATUS_OK != mission_status)
+            && (MISSION_PERCEPTION_STATUS_DISABLED != mission_status))
+        {
+            control_state.mission_perception_error_count++;
+        }
         navigation_stop_replay();
         control_system_set_zero_command();
         return 0U;
@@ -1406,16 +1644,19 @@ void control_system_stop_route(void)
     // Make the route inactive before PendSV can run again, so no pending route
     // action can be dispatched after the action snapshot above.
     route_plan_abort();
+    mission_perception_stop();
     Cy_SysLib_ExitCriticalSection(interrupt_state);
 
     switch (action_to_abort)
     {
-        case ROUTE_ACTION_JUMP:
+        case ROUTE_ACTION_STAIR_DESCENT_JUMP:
             (void)control_system_abort_jump();
             break;
 
         case ROUTE_ACTION_ROTATE_CW:
         case ROUTE_ACTION_ROTATE_CCW:
+        case ROUTE_ACTION_MINE_ROTATE_CW:
+        case ROUTE_ACTION_MINE_ROTATE_CCW:
             (void)control_system_abort_rotation();
             break;
 

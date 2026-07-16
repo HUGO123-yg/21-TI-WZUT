@@ -4,6 +4,7 @@
 
 #include "Control_system.h"
 #include "Flash.h"
+#include "Mission_perception.h"
 #include "Navigation.h"
 #include "config.h"
 #include "zf_device_ips200.h"
@@ -498,6 +499,7 @@ static void menu_draw(void)
 #if MENU_DISPLAY_ENABLE
     const control_system_state_t *control;
     const route_plan_state_t *route;
+    const mission_perception_state_t *mission;
     const menu_item_t *items;
     uint8 count;
     uint8 index;
@@ -505,6 +507,7 @@ static void menu_draw(void)
 
     control = control_system_get_state();
     route = control_system_get_route_state();
+    mission = mission_perception_get_state();
     if (menu_drawn_page != menu_state.page)
     {
         ips200_clear();
@@ -536,6 +539,23 @@ static void menu_draw(void)
             ips200_show_string(16U, y, items[index].label);
         }
     }
+    ips200_show_string(0U, 240U, "MS:");
+    ips200_show_uint(24U, 240U, mission->status, 2U);
+    ips200_show_string(48U, 240U, "T:");
+    ips200_show_uint(64U, 240U, mission->task, 1U);
+    ips200_show_string(80U, 240U, "F:");
+    ips200_show_uint(96U, 240U, mission->visual_fresh, 1U);
+    ips200_show_string(112U, 240U, "C:");
+    ips200_show_uint(128U, 240U, mission->visual_calibrated, 1U);
+    ips200_show_string(144U, 240U, "G:");
+    ips200_show_uint(160U, 240U, control->mission_guidance_active, 1U);
+    ips200_show_string(0U, 256U, "TURN:");
+    ips200_show_float(40U, 256U,
+                      mission->mine_rotation_progress_turns, 1U, 2U);
+    ips200_show_string(104U, 256U, "BW:");
+    ips200_show_uint(128U, 256U, mission->mine_boundary_warning, 1U);
+    ips200_show_string(144U, 256U, "YR:");
+    ips200_show_uint(168U, 256U, control->rotation_actuation_ready, 1U);
     ips200_show_string(0U, 272U, "RM:");
     ips200_show_float(24U, 272U, route->route_distance_m, 3U, 2U);
     ips200_show_string(104U, 272U, "RS:");

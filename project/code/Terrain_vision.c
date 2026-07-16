@@ -3,7 +3,8 @@
 #include <string.h>
 
 #include "config.h"
-#include "zf_device_mt9v03x.h"
+#include "Vision_frame.h"
+#include "Vision_pipeline.h"
 
 #define TERRAIN_VISION_STATE_FILTER_LENGTH  (5U)
 #define TERRAIN_VISION_STRIP_MAX             (8U)
@@ -11,6 +12,9 @@
 #define TERRAIN_VISION_DEFAULT_END_LINE      (20U)
 
 static terrain_vision_result_t terrain_result;
+static terrain_vision_result_t terrain_published_result[2];
+static volatile uint8 terrain_published_index;
+static uint32 terrain_last_source_frame_count;
 
 static uint8 terrain_gray[TERRAIN_VISION_IMAGE_HEIGHT]
                          [TERRAIN_VISION_IMAGE_WIDTH];
@@ -55,6 +59,53 @@ static uint8 step_stable;
 static terrain_bridge_side_t last_bridge_side;
 static uint8 terrain_state_filter[TERRAIN_VISION_STATE_FILTER_LENGTH];
 
+static void terrain_publish_result(void)
+{
+    uint8 next_index = terrain_published_index ^ 1U;
+
+    terrain_published_result[next_index] = terrain_result;
+    // Publishing one byte is atomic on the target. The inactive buffer is
+    // fully copied before it becomes visible to readers.
+    terrain_published_index = next_index;
+}
+
+static uint8 terrain_config_is_valid(void)
+{
+    uint8 far_row_count;
+    uint8 near_row_count;
+
+    if ((TERRAIN_VISION_PATH_FAR_ROW_FIRST
+         > TERRAIN_VISION_PATH_FAR_ROW_LAST)
+        || (TERRAIN_VISION_PATH_NEAR_ROW_FIRST
+            > TERRAIN_VISION_PATH_NEAR_ROW_LAST)
+        || (TERRAIN_VISION_PATH_FAR_ROW_LAST
+            >= TERRAIN_VISION_IMAGE_HEIGHT)
+        || (TERRAIN_VISION_PATH_NEAR_ROW_LAST
+            >= TERRAIN_VISION_IMAGE_HEIGHT)
+        || (0U == TERRAIN_VISION_PATH_MIN_VALID_ROWS)
+        || (0U == TERRAIN_VISION_SCORE_MAX)
+        || (TERRAIN_VISION_BUMPY_CONFIRM_FRAMES
+            > TERRAIN_VISION_SCORE_MAX)
+        || (TERRAIN_VISION_STEP_CONFIRM_FRAMES
+            > TERRAIN_VISION_SCORE_MAX)
+        || (TERRAIN_VISION_BRIDGE_CONFIRM_FRAMES
+            > TERRAIN_VISION_SCORE_MAX)
+        || (TERRAIN_VISION_OBSTACLE_CONFIRM_FRAMES
+            > TERRAIN_VISION_SCORE_MAX)
+        || (TERRAIN_VISION_RELEASE_SCORE > TERRAIN_VISION_SCORE_MAX))
+    {
+        return 0U;
+    }
+
+    far_row_count = TERRAIN_VISION_PATH_FAR_ROW_LAST
+                    - TERRAIN_VISION_PATH_FAR_ROW_FIRST + 1U;
+    near_row_count = TERRAIN_VISION_PATH_NEAR_ROW_LAST
+                     - TERRAIN_VISION_PATH_NEAR_ROW_FIRST + 1U;
+    return (uint8)((TERRAIN_VISION_PATH_MIN_VALID_ROWS <= far_row_count)
+                   && (TERRAIN_VISION_PATH_MIN_VALID_ROWS
+                       <= near_row_count));
+}
+
 static void terrain_vision_reset_state(void)
 {
     memset(&terrain_result, 0, sizeof(terrain_result));
@@ -70,6 +121,9 @@ static void terrain_vision_reset_state(void)
     memset(strip_y1, 0, sizeof(strip_y1));
     memset(strip_y2, 0, sizeof(strip_y2));
     memset(terrain_state_filter, 0, sizeof(terrain_state_filter));
+    memset(terrain_published_result, 0, sizeof(terrain_published_result));
+    terrain_published_index = 0U;
+    terrain_last_source_frame_count = 0U;
 
     strip_count = 0U;
     terrain_end_line = TERRAIN_VISION_DEFAULT_END_LINE;
@@ -100,7 +154,7 @@ static void terrain_vision_reset_state(void)
 
     terrain_result.type = TERRAIN_TYPE_NORMAL;
     terrain_result.bridge_side = TERRAIN_BRIDGE_SIDE_UNKNOWN;
-    terrain_result.exposure = MT9V03X_EXP_TIME_DEF;
+    terrain_published_result[0] = terrain_result;
 }
 
 static uint8 terrain_otsu_threshold(const uint8 *image,
@@ -166,29 +220,6 @@ static uint8 terrain_otsu_threshold(const uint8 *image,
     }
 
     return threshold;
-}
-
-static void terrain_compress_image(const uint8 *source,
-                                   uint16 source_width,
-                                   uint16 source_height)
-{
-    uint16 x;
-    uint16 y;
-
-    for (y = 0U; y < TERRAIN_VISION_IMAGE_HEIGHT; y++)
-    {
-        uint16 source_y = (uint16)(((uint32)y * source_height)
-                                   / TERRAIN_VISION_IMAGE_HEIGHT);
-
-        for (x = 0U; x < TERRAIN_VISION_IMAGE_WIDTH; x++)
-        {
-            uint16 source_x = (uint16)(((uint32)x * source_width)
-                                       / TERRAIN_VISION_IMAGE_WIDTH);
-
-            terrain_gray[y][x] = source[(uint32)source_y * source_width
-                                        + source_x];
-        }
-    }
 }
 
 static void terrain_make_binary(void)
@@ -543,6 +574,98 @@ static void terrain_update_road_features(void)
         ? (uint8)(near_sum / near_count) : 0U;
     terrain_result.road_width_far = (far_count > 0U)
         ? (uint8)(far_sum / far_count) : 0U;
+}
+
+static void terrain_average_road_center(uint8 first_row,
+                                        uint8 last_row,
+                                        uint16 *center_sum,
+                                        uint8 *valid_count)
+{
+    uint8 y;
+
+    *center_sum = 0U;
+    *valid_count = 0U;
+    for (y = first_row; y <= last_row; y++)
+    {
+        if (!terrain_left_valid[y] || !terrain_right_valid[y]
+            || (terrain_right_line[y] <= terrain_left_line[y] + 9U))
+        {
+            continue;
+        }
+        *center_sum += (uint16)(terrain_left_line[y]
+                                + terrain_right_line[y]) / 2U;
+        (*valid_count)++;
+    }
+}
+
+static float terrain_clamp_normalized(float value)
+{
+    if (value < -1.0f)
+    {
+        return -1.0f;
+    }
+    if (value > 1.0f)
+    {
+        return 1.0f;
+    }
+    return value;
+}
+
+static void terrain_update_path_observation(void)
+{
+    uint16 near_center_sum;
+    uint16 far_center_sum;
+    uint8 near_valid_count;
+    uint8 far_valid_count;
+    uint8 minimum_valid_count;
+    uint8 expected_count;
+    float image_center = ((float)TERRAIN_VISION_IMAGE_WIDTH - 1.0f) * 0.5f;
+
+    terrain_result.path_center_error_norm = 0.0f;
+    terrain_result.path_heading_error_norm = 0.0f;
+    terrain_result.road_center_near_px = 0U;
+    terrain_result.road_center_far_px = 0U;
+    terrain_result.path_quality = 0U;
+    terrain_result.path_valid = 0U;
+
+    terrain_average_road_center(TERRAIN_VISION_PATH_FAR_ROW_FIRST,
+                                TERRAIN_VISION_PATH_FAR_ROW_LAST,
+                                &far_center_sum,
+                                &far_valid_count);
+    terrain_average_road_center(TERRAIN_VISION_PATH_NEAR_ROW_FIRST,
+                                TERRAIN_VISION_PATH_NEAR_ROW_LAST,
+                                &near_center_sum,
+                                &near_valid_count);
+    if ((near_valid_count < TERRAIN_VISION_PATH_MIN_VALID_ROWS)
+        || (far_valid_count < TERRAIN_VISION_PATH_MIN_VALID_ROWS))
+    {
+        return;
+    }
+
+    terrain_result.road_center_near_px
+        = (uint8)(near_center_sum / near_valid_count);
+    terrain_result.road_center_far_px
+        = (uint8)(far_center_sum / far_valid_count);
+    minimum_valid_count = (near_valid_count < far_valid_count)
+        ? near_valid_count : far_valid_count;
+    expected_count = TERRAIN_VISION_PATH_NEAR_ROW_LAST
+                     - TERRAIN_VISION_PATH_NEAR_ROW_FIRST + 1U;
+    if ((TERRAIN_VISION_PATH_FAR_ROW_LAST
+         - TERRAIN_VISION_PATH_FAR_ROW_FIRST + 1U) < expected_count)
+    {
+        expected_count = TERRAIN_VISION_PATH_FAR_ROW_LAST
+                         - TERRAIN_VISION_PATH_FAR_ROW_FIRST + 1U;
+    }
+    terrain_result.path_quality = (uint8)((uint16)minimum_valid_count
+                                          * 100U / expected_count);
+    terrain_result.path_center_error_norm = terrain_clamp_normalized(
+        ((float)terrain_result.road_center_near_px - image_center)
+        / image_center);
+    terrain_result.path_heading_error_norm = terrain_clamp_normalized(
+        ((float)terrain_result.road_center_far_px
+         - (float)terrain_result.road_center_near_px)
+        / image_center);
+    terrain_result.path_valid = 1U;
 }
 
 static uint8 terrain_get_inner_road_roi(uint8 y,
@@ -1277,39 +1400,13 @@ static void terrain_update_confidence(void)
     }
 }
 
-static void terrain_update_exposure(void)
-{
-#if (MT9V03X_AUTO_EXP_DEF == 0)
-    static uint8 frame_divider = 0U;
-
-    frame_divider++;
-    if (frame_divider < TERRAIN_VISION_EXPOSURE_UPDATE_FRAMES)
-    {
-        return;
-    }
-    frame_divider = 0U;
-
-    if ((terrain_result.average_gray > 165U)
-        && (terrain_result.exposure > TERRAIN_VISION_EXPOSURE_MIN))
-    {
-        terrain_result.exposure -= TERRAIN_VISION_EXPOSURE_STEP;
-        (void)mt9v03x_set_exposure_time(terrain_result.exposure);
-    }
-    else if ((terrain_result.average_gray < 75U)
-             && (terrain_result.exposure < TERRAIN_VISION_EXPOSURE_MAX))
-    {
-        terrain_result.exposure += TERRAIN_VISION_EXPOSURE_STEP;
-        (void)mt9v03x_set_exposure_time(terrain_result.exposure);
-    }
-#endif
-}
-
-static terrain_vision_status_t terrain_process_compressed(uint8 update_exposure)
+static terrain_vision_status_t terrain_process_compressed(uint32 frame_count)
 {
     terrain_make_binary();
     terrain_filter_binary();
     terrain_find_road_lines(terrain_gray[0]);
     terrain_update_road_features();
+    terrain_update_path_observation();
     terrain_detect_bumpy_strips(terrain_gray[0]);
     terrain_detect_transverse_bands(terrain_gray[0]);
     terrain_detect_shape();
@@ -1318,75 +1415,155 @@ static terrain_vision_status_t terrain_process_compressed(uint8 update_exposure)
     terrain_result.bridge_side = (TERRAIN_TYPE_BRIDGE == terrain_result.type)
         ? last_bridge_side : TERRAIN_BRIDGE_SIDE_UNKNOWN;
     terrain_update_confidence();
-    terrain_result.frame_count++;
+    terrain_result.frame_count = frame_count;
     terrain_result.status = TERRAIN_VISION_STATUS_OK;
-
-    if (update_exposure)
-    {
-        terrain_update_exposure();
-    }
+    terrain_publish_result();
     return TERRAIN_VISION_STATUS_OK;
 }
 
-terrain_vision_status_t terrain_vision_init(void)
+terrain_vision_status_t terrain_vision_detector_init(void)
 {
+    const vision_frame_t *frame;
+    vision_frame_status_t frame_status;
+
     terrain_vision_reset_state();
 
     if (!TERRAIN_VISION_ENABLE)
     {
         terrain_result.status = TERRAIN_VISION_STATUS_DISABLED;
+        terrain_publish_result();
         return terrain_result.status;
     }
-    if (0U != mt9v03x_init())
+    if (!terrain_config_is_valid())
+    {
+        terrain_result.status = TERRAIN_VISION_STATUS_INVALID_CONFIG;
+        terrain_publish_result();
+        return terrain_result.status;
+    }
+    frame_status = vision_frame_init();
+    if (VISION_FRAME_STATUS_DISABLED == frame_status)
+    {
+        terrain_result.status = TERRAIN_VISION_STATUS_DISABLED;
+        terrain_publish_result();
+        return terrain_result.status;
+    }
+    if (VISION_FRAME_STATUS_INVALID_CONFIG == frame_status)
+    {
+        terrain_result.status = TERRAIN_VISION_STATUS_INVALID_CONFIG;
+        terrain_publish_result();
+        return terrain_result.status;
+    }
+    if (VISION_FRAME_STATUS_OK != frame_status)
     {
         terrain_result.status = TERRAIN_VISION_STATUS_CAMERA_ERROR;
+        terrain_publish_result();
         return terrain_result.status;
     }
 
+    frame = vision_frame_get_latest();
     terrain_result.enabled = 1U;
     terrain_result.status = TERRAIN_VISION_STATUS_OK;
-#if (MT9V03X_AUTO_EXP_DEF == 0)
-    (void)mt9v03x_set_exposure_time(terrain_result.exposure);
-#endif
+    terrain_result.exposure = frame->exposure;
+    terrain_result.dropped_frame_count = frame->dropped_frame_count;
+    terrain_publish_result();
     return terrain_result.status;
+}
+
+terrain_vision_status_t terrain_vision_init(void)
+{
+    vision_pipeline_status_t status = vision_pipeline_init();
+
+    switch (status)
+    {
+        case VISION_PIPELINE_STATUS_DISABLED:
+            return TERRAIN_VISION_STATUS_DISABLED;
+
+        case VISION_PIPELINE_STATUS_INVALID_CONFIG:
+            return TERRAIN_VISION_STATUS_INVALID_CONFIG;
+
+        case VISION_PIPELINE_STATUS_CAMERA_ERROR:
+            return TERRAIN_VISION_STATUS_CAMERA_ERROR;
+
+        case VISION_PIPELINE_STATUS_OBSERVER_ERROR:
+        case VISION_PIPELINE_STATUS_NOT_INITIALIZED:
+            return TERRAIN_VISION_STATUS_CAMERA_ERROR;
+
+        case VISION_PIPELINE_STATUS_OK:
+        case VISION_PIPELINE_STATUS_WAITING_FOR_FRAME:
+        default:
+            return terrain_result.status;
+    }
+}
+
+terrain_vision_status_t terrain_vision_process_shared_frame(
+    const vision_frame_t *frame)
+{
+    if ((0 == frame) || !frame->enabled
+        || (VISION_FRAME_STATUS_OK != frame->status)
+        || (0U == frame->frame_count))
+    {
+        terrain_result.status = TERRAIN_VISION_STATUS_INVALID_ARGUMENT;
+        terrain_publish_result();
+        return terrain_result.status;
+    }
+    if (frame->frame_count == terrain_last_source_frame_count)
+    {
+        return terrain_result.status;
+    }
+
+    memcpy(terrain_gray, frame->gray, sizeof(terrain_gray));
+    terrain_last_source_frame_count = frame->frame_count;
+    terrain_result.dropped_frame_count = frame->dropped_frame_count;
+    terrain_result.exposure = frame->exposure;
+    return terrain_process_compressed(frame->frame_count);
 }
 
 void terrain_vision_task(void)
 {
-    if (!terrain_result.enabled || !mt9v03x_finish_flag)
-    {
-        return;
-    }
-
-    mt9v03x_finish_flag = 0U;
-    terrain_compress_image(mt9v03x_image[0], MT9V03X_W, MT9V03X_H);
-
-    // The camera ISR copies into mt9v03x_image. If another frame arrived while
-    // this snapshot was being compressed, discard the mixed snapshot and leave
-    // the new completion flag set for the next main-loop iteration.
-    if (mt9v03x_finish_flag)
-    {
-        terrain_result.dropped_frame_count++;
-        return;
-    }
-    (void)terrain_process_compressed(1U);
+    (void)vision_pipeline_task();
 }
 
 terrain_vision_status_t terrain_vision_process_frame(const uint8 *image,
                                                      uint16 width,
                                                      uint16 height)
 {
+    vision_frame_status_t frame_status;
+
     if ((0 == image) || (0U == width) || (0U == height))
     {
         terrain_result.status = TERRAIN_VISION_STATUS_INVALID_ARGUMENT;
+        terrain_publish_result();
         return terrain_result.status;
     }
 
-    terrain_compress_image(image, width, height);
-    return terrain_process_compressed(0U);
+    frame_status = vision_frame_resample(image,
+                                         width,
+                                         height,
+                                         terrain_gray[0],
+                                         0);
+    if (VISION_FRAME_STATUS_OK != frame_status)
+    {
+        terrain_result.status = TERRAIN_VISION_STATUS_INVALID_ARGUMENT;
+        terrain_publish_result();
+        return terrain_result.status;
+    }
+    return terrain_process_compressed(terrain_result.frame_count + 1U);
 }
 
 const terrain_vision_result_t *terrain_vision_get_result(void)
 {
-    return &terrain_result;
+    return &terrain_published_result[terrain_published_index];
+}
+
+uint8 terrain_vision_get_snapshot(terrain_vision_result_t *result)
+{
+    uint8 published_index;
+
+    if (0 == result)
+    {
+        return 0U;
+    }
+    published_index = terrain_published_index;
+    *result = terrain_published_result[published_index];
+    return 1U;
 }

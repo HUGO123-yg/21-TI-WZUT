@@ -1173,6 +1173,12 @@
             <name>$PROJ_DIR$\..\..\code\Five_bar.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Cone_vision.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Cone_vision.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Leg_ctrl.c</name>
         </file>
         <file>
@@ -1185,10 +1191,28 @@
             <name>$PROJ_DIR$\..\..\code\Menu.h</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\..\code\Minefield_vision.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Minefield_vision.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Mission_perception.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Mission_perception.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\..\code\Navigation.c</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Navigation.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Perception_fusion.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Perception_fusion.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Pid.c</name>
@@ -1219,6 +1243,18 @@
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Terrain_vision.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Vision_frame.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Vision_frame.h</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Vision_pipeline.c</name>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\code\Vision_pipeline.h</name>
         </file>
         <file>
             <name>$PROJ_DIR$\..\..\code\Wheel_driver.c</name>

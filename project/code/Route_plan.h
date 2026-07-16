@@ -18,9 +18,15 @@ typedef enum
 typedef enum
 {
     ROUTE_ACTION_NONE = 0,
-    ROUTE_ACTION_JUMP,
+    // Route-triggered jumping is reserved for the stair-to-ground pass in
+    // subject 3. The staggered one-sided bridge explicitly forbids jumping.
+    ROUTE_ACTION_STAIR_DESCENT_JUMP,
     ROUTE_ACTION_ROTATE_CW,
     ROUTE_ACTION_ROTATE_CCW,
+    // Minefield rotations are distinct from generic turns so Control_system
+    // can require a calibrated in-frame boundary guard and at least two turns.
+    ROUTE_ACTION_MINE_ROTATE_CW,
+    ROUTE_ACTION_MINE_ROTATE_CCW,
     ROUTE_ACTION_BRIDGE_LEFT,
     ROUTE_ACTION_BRIDGE_RIGHT,
     ROUTE_ACTION_BUMPY,
@@ -60,6 +66,11 @@ typedef struct
     uint8 next_point_index;
 } route_plan_state_t;
 
+// Validates both numeric bounds and subject semantics. Route 2 rejects generic
+// rotations because they would bypass the minefield boundary guard.
+uint8 route_plan_definition_is_valid(uint8 route_id,
+                                     const route_point_t *points,
+                                     uint8 count);
 route_plan_status_t route_plan_init(void);
 route_plan_status_t route_plan_start(uint8 route_id);
 void route_plan_abort(void);

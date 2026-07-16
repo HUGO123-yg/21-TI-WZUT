@@ -68,10 +68,14 @@ typedef struct
     uint32 leg_error_count;
     uint32 jump_error_count;
     uint32 navigation_error_count;
+    uint32 perception_error_count;
+    uint32 mission_perception_error_count;
     uint32 bridge_error_count;
     uint32 bumpy_error_count;
     uint32 rotation_error_count;
     uint32 route_error_count;
+    uint32 mission_guidance_apply_count;
+    uint32 mine_guard_abort_count;
     uint32 emergency_stop_count;
     uint32 recovery_attempt_count;
     uint32 recovery_failure_count;
@@ -79,6 +83,8 @@ typedef struct
     uint32 last_leg_status;
     uint32 last_jump_result;
     uint32 last_navigation_status;
+    uint32 last_perception_status;
+    uint32 last_mission_perception_status;
     uint32 last_bridge_status;
     uint32 last_bumpy_status;
     uint32 last_rotation_status;
@@ -94,6 +100,8 @@ typedef struct
     uint8 route_active;
     uint8 route_action_pending;
     uint8 route_action_running;
+    uint8 mission_guidance_active;
+    uint8 rotation_actuation_ready;
     uint8 stand_request_pending;
     uint8 balance_enabled;
     control_startup_state_t startup_state;

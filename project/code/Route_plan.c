@@ -47,16 +47,72 @@ static uint8 route_plan_action_is_valid(route_action_t action,
     {
         return 0U;
     }
+    if (((ROUTE_ACTION_MINE_ROTATE_CW == action)
+         || (ROUTE_ACTION_MINE_ROTATE_CCW == action))
+        && ((parameter < MISSION_PERCEPTION_MINE_MIN_TURNS)
+            || (parameter > ROTATION_MAX_TURNS)
+            || (parameter > MISSION_PERCEPTION_MINE_MAX_TURNS)))
+    {
+        return 0U;
+    }
+    if (((ROUTE_ACTION_NONE == action)
+         || (ROUTE_ACTION_STAIR_DESCENT_JUMP == action)
+         || (ROUTE_ACTION_BRIDGE_LEFT == action)
+         || (ROUTE_ACTION_BRIDGE_RIGHT == action)
+         || (ROUTE_ACTION_BUMPY == action)
+         || (ROUTE_ACTION_STOP == action))
+        && (0.0f != parameter))
+    {
+        return 0U;
+    }
     return 1U;
 }
 
-static uint8 route_plan_points_are_valid(const route_point_t *points,
-                                         uint8 count)
+static uint8 route_plan_action_requires_zero_speed(route_action_t action)
+{
+    return (uint8)((ROUTE_ACTION_STAIR_DESCENT_JUMP == action)
+        || (ROUTE_ACTION_ROTATE_CW == action)
+        || (ROUTE_ACTION_ROTATE_CCW == action)
+        || (ROUTE_ACTION_MINE_ROTATE_CW == action)
+        || (ROUTE_ACTION_MINE_ROTATE_CCW == action)
+        || (ROUTE_ACTION_STOP == action));
+}
+
+static uint8 route_plan_action_matches_route(uint8 route_id,
+                                             route_action_t action)
+{
+    switch (action)
+    {
+        case ROUTE_ACTION_MINE_ROTATE_CW:
+        case ROUTE_ACTION_MINE_ROTATE_CCW:
+            return (uint8)(2U == route_id);
+
+        case ROUTE_ACTION_STAIR_DESCENT_JUMP:
+        case ROUTE_ACTION_BRIDGE_LEFT:
+        case ROUTE_ACTION_BRIDGE_RIGHT:
+        case ROUTE_ACTION_BUMPY:
+            return (uint8)(3U == route_id);
+
+        case ROUTE_ACTION_ROTATE_CW:
+        case ROUTE_ACTION_ROTATE_CCW:
+            return (uint8)(2U != route_id);
+
+        case ROUTE_ACTION_NONE:
+        case ROUTE_ACTION_STOP:
+        default:
+            return 1U;
+    }
+}
+
+uint8 route_plan_definition_is_valid(uint8 route_id,
+                                     const route_point_t *points,
+                                     uint8 count)
 {
     float previous_distance;
     uint8 index;
 
-    if ((0 == points) || (0U == count)
+    if ((route_id < 1U) || (route_id > 3U)
+        || (0 == points) || (0U == count)
         || (count > ROUTE_PLAN_MAX_POINT_COUNT)
         || (ROUTE_PLAN_MAX_SPEED_M_S <= 0.0f)
         || (ROUTE_PLAN_SPEED_SLEW_M_S2 <= 0.0f)
@@ -76,8 +132,12 @@ static uint8 route_plan_points_are_valid(const route_point_t *points,
             || (points[index].target_speed_m_s < 0.0f)
             || (points[index].target_speed_m_s
                 > ROUTE_PLAN_MAX_SPEED_M_S)
+            || (route_plan_action_requires_zero_speed(points[index].action)
+                && (0.0f != points[index].target_speed_m_s))
             || !route_plan_action_is_valid(points[index].action,
-                                           points[index].action_parameter))
+                                           points[index].action_parameter)
+            || !route_plan_action_matches_route(route_id,
+                                                points[index].action))
         {
             return 0U;
         }
@@ -113,7 +173,9 @@ static uint8 route_plan_load(uint8 route_id)
             active_point_count = 0U;
             return 0U;
     }
-    return route_plan_points_are_valid(active_points, active_point_count);
+    return route_plan_definition_is_valid(route_id,
+                                          active_points,
+                                          active_point_count);
 }
 
 static float route_plan_slew_speed(float current, float target)

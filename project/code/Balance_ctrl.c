@@ -29,6 +29,8 @@ uint8 balance_ctrl_config_is_valid(void)
         || (BALANCE_MAX_PITCH_REFERENCE_RAD <= 0.0f)
         || (BALANCE_MAX_PITCH_RATE_RAD_S <= 0.0f)
         || (BALANCE_MAX_RATE_INTEGRAL < 0.0f)
+        || (BALANCE_MAX_YAW_COMMAND < 0.0f)
+        || (WHEEL_MAX_COMMAND <= 0)
         || (fabsf(BALANCE_PITCH_ZERO_RAD) >= 1.57079633f))
     {
         return 0U;
@@ -72,10 +74,16 @@ static void balance_reset_controllers(void)
     balance_state.pitch_reference_rad = BALANCE_PITCH_ZERO_RAD;
     balance_state.pitch_rate_reference_rad_s = 0.0f;
     balance_state.balance_command = 0.0f;
+    balance_state.wheel_common_command = 0.0f;
+    balance_state.yaw_rate_error_rad_s = 0.0f;
+    balance_state.yaw_command_requested = 0.0f;
     balance_state.yaw_command = 0.0f;
+    balance_state.yaw_command_limit = 0.0f;
+    balance_state.yaw_integrator = 0.0f;
     balance_state.left_wheel_command = 0;
     balance_state.right_wheel_command = 0;
     balance_state.leg_speed_control_active = 0U;
+    balance_state.yaw_command_limited = 0U;
     balance_state.position_reference_m = balance_state.measured_position_m;
 }
 
@@ -98,6 +106,19 @@ static void balance_mix_wheels(float common_command, float yaw_command)
     right = common + differential;
     balance_state.left_wheel_command = (int16)left;
     balance_state.right_wheel_command = (int16)right;
+    balance_state.wheel_common_command = common;
+}
+
+static float balance_get_yaw_command_limit(float common_command)
+{
+    float common;
+    float wheel_limit;
+
+    common = balance_clamp(common_command,
+                           -(float)WHEEL_MAX_COMMAND,
+                           (float)WHEEL_MAX_COMMAND);
+    wheel_limit = (float)WHEEL_MAX_COMMAND - fabsf(common);
+    return balance_clamp(wheel_limit, 0.0f, BALANCE_MAX_YAW_COMMAND);
 }
 
 void balance_ctrl_init(void)
@@ -228,8 +249,11 @@ void balance_ctrl_update(const imu_data_t *imu,
 
     pitch_rad = imu->pitch_deg * BALANCE_DEG_TO_RAD;
     roll_rad = imu->roll_deg * BALANCE_DEG_TO_RAD;
-    pitch_rate_rad_s = imu->gyro_dps[1] * BALANCE_DEG_TO_RAD;
-    yaw_rate_rad_s = imu->gyro_dps[2] * BALANCE_DEG_TO_RAD;
+    pitch_rate_rad_s = imu->attitude_rate_dps[1] * BALANCE_DEG_TO_RAD;
+    yaw_rate_rad_s = imu->attitude_rate_dps[2] * BALANCE_DEG_TO_RAD;
+    balance_state.measured_pitch_rad = pitch_rad;
+    balance_state.measured_pitch_rate_rad_s = pitch_rate_rad_s;
+    balance_state.measured_yaw_rate_rad_s = yaw_rate_rad_s;
     wheel_circumference_m = BALANCE_PI * WHEEL_DIAMETER_M;
     left_speed_m_s = (float)wheel->left_rpm * wheel_circumference_m / 60.0f;
     right_speed_m_s = (float)wheel->right_rpm * wheel_circumference_m / 60.0f;
@@ -324,10 +348,21 @@ void balance_ctrl_update(const imu_data_t *imu,
 #endif
 
     yaw_rate_error = balance_target.target_yaw_rate_rad_s - yaw_rate_rad_s;
+    balance_state.yaw_rate_error_rad_s = yaw_rate_error;
+    balance_state.yaw_command_limit = balance_get_yaw_command_limit(
+        balance_state.balance_command);
+    yaw_rate_pid.output_min = -balance_state.yaw_command_limit;
+    yaw_rate_pid.output_max = balance_state.yaw_command_limit;
     balance_state.yaw_command = pid_update(&yaw_rate_pid,
                                            yaw_rate_error,
                                            0.0f,
                                            CONTROL_FAST_PERIOD_S);
+    balance_state.yaw_integrator = yaw_rate_pid.integrator;
+    balance_state.yaw_command_requested
+        = yaw_rate_pid.kp * yaw_rate_error + yaw_rate_pid.integrator;
+    balance_state.yaw_command_limited = (uint8)(
+        fabsf(balance_state.yaw_command_requested)
+        > balance_state.yaw_command_limit + 0.0001f);
     balance_mix_wheels(balance_state.balance_command,
                        balance_state.yaw_command);
 }
